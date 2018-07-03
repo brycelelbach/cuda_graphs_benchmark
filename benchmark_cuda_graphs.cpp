@@ -1,3 +1,9 @@
+// Copyright 2018 NVIDIA Corporation
+//
+// Distributed under the Boost Software License v1.0 (boost.org/LICENSE_1_0.txt)
+//
+// Author: Bryce Adelstein Lelbach aka wash <brycelelbach@gmail.com>
+
 /*
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -85,6 +91,19 @@ Amortization of graph reuse:
   AmortizeReuse(2N) < AmortizeReuse(N)
   AmortizeReuse(1) \in [10^2, 10^3)
 
+///////////////////////////////////////////////////////////////////////////////
+Testing
+///////////////////////////////////////////////////////////////////////////////
+
+* Measure execution time of traditional launch of linearly dependent kernels.
+
+* Measure execution time of graph launch of linearly dependent kernels while varying:
+  * # of kernels per graph.
+  * # of launches per graph.
+
+* Measure compilation time of graphs of linearly dependent kernels while varying:
+  * # of kernels per graph.
+
 */
 
 #include <utility>
@@ -101,6 +120,14 @@ Amortization of graph reuse:
 #include <cmath>
 
 #include <cuda.h>
+
+//#if 10010 <= CUDA_VERSION 
+  #define cuGraphAddGpuKernelNode(node, graph, deps, deps_size, desc, context) \
+    cuGraphAddKernelNode(node, graph, deps, deps_size, desc)                   \
+    /**/
+
+  #define CUDA_GPU_KERNEL_NODE_PARAMS CUDA_KERNEL_NODE_PARAMS
+//#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -439,7 +466,6 @@ public:
   {
     CUmod_st* module;
     THROW_ON_CUDA_DRV_ERROR(cuModuleLoad(&module, filename));
-
     ptr_.reset(module);
   }
 
@@ -501,6 +527,7 @@ private:
 public:
   cuda_stream()
   {
+
     CUstream_st* stream;
     THROW_ON_CUDA_DRV_ERROR(cuStreamCreate(&stream, CU_STREAM_DEFAULT));
     ptr_.reset(stream);
@@ -517,6 +544,78 @@ public:
   {
     THROW_ON_CUDA_DRV_ERROR(cuStreamSynchronize(get()));
   }
+};
+
+///////////////////////////////////////////////////////////////////////////////
+
+struct cuda_graph_deleter final
+{
+  void operator()(CUgraph_st* graph) const
+  {
+    if (nullptr != graph)
+      THROW_ON_CUDA_DRV_ERROR(cuGraphDestroy(graph));
+  }
+};
+
+struct cuda_graph final
+{
+private:
+  std::unique_ptr<CUgraph_st, cuda_graph_deleter> ptr_;
+
+public:
+  cuda_graph()
+  {
+    CUgraph_st* graph;
+    THROW_ON_CUDA_DRV_ERROR(cuGraphCreate(&graph, 0));
+    ptr_.reset(graph);
+  }
+
+  cuda_graph(cuda_graph const&)     = delete;
+  cuda_graph(cuda_graph&&) noexcept = default;
+
+  CUgraph_st& operator*()  const RETURNS(*ptr_.get())
+  CUgraph_st* operator->() const RETURNS(ptr_.get())
+  CUgraph_st* get()        const RETURNS(ptr_.get())
+};
+
+struct cuda_compiled_graph_deleter final
+{
+  void operator()(CUgraphExec_st* graph) const
+  {
+    if (nullptr != graph)
+      THROW_ON_CUDA_DRV_ERROR(cuGraphExecDestroy(graph));
+  }
+};
+
+struct cuda_compiled_graph final
+{
+private:
+  std::unique_ptr<CUgraphExec_st, cuda_compiled_graph_deleter> ptr_;
+
+public:
+  cuda_compiled_graph() = default;
+
+  cuda_compiled_graph(cuda_graph& template_)
+  {
+    CUgraphExec_st* graph;
+    CUgraphNode n;
+    THROW_ON_CUDA_DRV_ERROR(
+      cuGraphInstantiate(&graph, template_.get(), nullptr, nullptr, 0)
+    );
+    ptr_.reset(graph);
+  }
+
+  cuda_compiled_graph(cuda_compiled_graph const&)     = delete;
+  cuda_compiled_graph(cuda_compiled_graph&&) noexcept = default;
+
+  cuda_compiled_graph& operator=(cuda_compiled_graph const&)     = delete;
+  cuda_compiled_graph& operator=(cuda_compiled_graph&&) noexcept = default;
+
+  CUgraphExec_st& operator*()  const RETURNS(*ptr_.get())
+  CUgraphExec_st* operator->() const RETURNS(ptr_.get())
+  CUgraphExec_st* get()        const RETURNS(ptr_.get())
+
+  void reset() { ptr_.reset(); }
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -707,6 +806,10 @@ auto constexpr xrange(Integral last)
     iterator(Integral(0)), sentinel(last)
   );
 }
+
+template <typename... Sizes>
+auto constexpr make_index_array(Sizes&&... sizes)
+RETURNS(std::array<int64_t, sizeof...(Sizes)>{FWD(sizes)...})
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -903,18 +1006,18 @@ T constexpr round_to_precision(T x, N ndigits)
 template <typename Time, typename SampleSize = int64_t>
 struct experiment_results final
 {
-  char const* name;
-  SampleSize  sample_size;
-  Time const  average_time; // Arithmetic mean of trial times in seconds.
-  Time const  stdev_time;   // Sample standard deviation of trial times.
+  SampleSize const  warmup_size;
+  SampleSize const  sample_size;
+  Time const        average_time;   // Arithmetic mean of trial times in seconds.
+  Time const        stdev_time;     // Sample standard deviation of trial times.
 
   constexpr experiment_results(
-      char const* name_
-    , SampleSize sample_size_
-    , Time average_time_
-    , Time stdev_time_
+      SampleSize  warmup_size_
+    , SampleSize  sample_size_
+    , Time        average_time_
+    , Time        stdev_time_
     )
-    : name(name_)
+    : warmup_size(MV(warmup_size_))
     , sample_size(MV(sample_size_))
     , average_time(MV(average_time_))
     , stdev_time(MV(stdev_time_))
@@ -923,14 +1026,14 @@ struct experiment_results final
 
 template <typename Time, typename SampleSize>
 auto constexpr make_experiment_results(
-  char const* name
+  SampleSize warmup_size
 , SampleSize sample_size
 , Time average_time
 , Time stdev_time
 )
 {
   return experiment_results<Time, SampleSize>(
-      name
+      MV(warmup_size)
     , MV(sample_size)
     , MV(average_time)
     , MV(stdev_time)
@@ -946,7 +1049,7 @@ auto constexpr round(experiment_results<Time, SampleSize> e)
   );
 
   return make_experiment_results(
-    e.name
+    e.warmup_size
   , e.sample_size
   , round_to_precision(e.average_time, precision)
   , round_to_precision(e.stdev_time, precision)
@@ -957,7 +1060,7 @@ template <typename Time, typename SampleSize>
 std::ostream&
 operator<<(std::ostream& os, experiment_results<Time, SampleSize> const& e)
 RETURNS(
-  os        << e.name
+  os << "," << e.warmup_size
      << "," << e.sample_size
      << "," << e.average_time
      << "," << e.stdev_time
@@ -965,20 +1068,28 @@ RETURNS(
 
 ///////////////////////////////////////////////////////////////////////////////
 
-template <typename Test, typename WarmupRange, typename TrialRange>
+template <typename Size, typename Test, typename Setup>
 auto experiment(
-  char const* name, Test test, WarmupRange&& warmup, TrialRange&& trials
+  Size warmup_sample_size
+, Size sample_size
+, Test&& test
+, Setup&& setup
 )
 {
   // Warmup trials.
-  for (auto w : warmup)
+  for (auto w : xrange(warmup_sample_size))
+  {
+    setup();
     test();
+  }
 
   std::vector<double> times;
-  times.reserve(trials.size());
+  times.reserve(sample_size);
 
-  for (auto t : trials)
+  for (auto s : xrange(sample_size))
   {
+    setup();
+
     // Record trial.
     auto const start = std::chrono::high_resolution_clock::now();
     test();
@@ -995,22 +1106,122 @@ auto experiment(
     = sample_standard_deviation(times.begin(), times.end(), average_time);
 
   return round(make_experiment_results(
-    name, trials.size(), average_time, stdev_time
+    warmup_sample_size, sample_size, average_time, stdev_time
   ));
 }
 
-///////////////////////////////////////////////////////////////////////////////
- 
-inline void traditional_launch(cuda_function& f, cuda_stream& stream)
+template <typename Size, typename Test>
+auto experiment(Size warmup_sample_size, Size sample_size, Test&& test)
 {
-  void* args[] = {};
+  return experiment(MV(warmup_sample_size), MV(sample_size), FWD(test), [] {});
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+struct cuda_launch_shape final
+{
+  int32_t const grid_size;  // Blocks per grid.
+  int32_t const block_size; // Threads per block.
+
+  constexpr cuda_launch_shape(int32_t grid_size_, int32_t block_size_)
+    : grid_size(grid_size_), block_size(block_size_)
+  {}
+};
+
+cuda_launch_shape cuda_compute_occupancy(cuda_function& f)
+{
+  int32_t grid_size  = 0;
+  int32_t block_size = 0;
+
+  THROW_ON_CUDA_DRV_ERROR(
+    cuOccupancyMaxPotentialBlockSize(
+      &grid_size, &block_size, f.get(), 0, 0, 0
+    )
+  ); 
+
+  return cuda_launch_shape(grid_size, block_size);
+}
+
+cuda_launch_shape cuda_compute_occupancy(cuda_function& f, int32_t input_size)
+{
+  int32_t min_grid_size = 0;
+  int32_t block_size    = 0;
+
+  THROW_ON_CUDA_DRV_ERROR(
+    cuOccupancyMaxPotentialBlockSize(
+      &min_grid_size, &block_size, f.get(), 0, 0, 0
+    )
+  ); 
+
+  // Round up based on input size.
+  int32_t const grid_size = (input_size + block_size - 1) / block_size;
+
+  return cuda_launch_shape(grid_size, block_size);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+template <typename Size, typename... Args> 
+auto compile_graph_linearly_dependent(
+  cuda_function&    f
+, cuda_launch_shape shape
+, Size              size
+, Args&&...         args
+)
+{
+  cuda_graph graph;
+
+  void* args_ptrs[] = { std::addressof(args)... };
+
+  CUDA_GPU_KERNEL_NODE_PARAMS desc;
+  desc.func = f.get();
+  desc.gridDimX = shape.grid_size;
+  desc.gridDimY = 1;
+  desc.gridDimZ = 1;
+  desc.blockDimX = shape.block_size;
+  desc.blockDimY = 1;
+  desc.blockDimZ = 1;
+  desc.sharedMemBytes = 0;
+  desc.kernelParams = args_ptrs;
+  desc.extra = nullptr;
+
+  CUgraphNode_st* next = nullptr;
+  CUgraphNode_st* prev = nullptr;
+
+  for (auto t : xrange(size))
+  {
+    THROW_ON_CUDA_DRV_ERROR(cuGraphAddGpuKernelNode(
+      &next, graph.get(), &prev, prev != nullptr, &desc, NULL
+    ));
+
+    std::swap(next, prev);
+  }
+
+  return cuda_compiled_graph(graph); 
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+template <typename... Args> 
+void traditional_launch(
+  cuda_function& f, cuda_stream& stream, cuda_launch_shape shape, Args&&... args
+)
+{
+  void* args_ptrs[] = { std::addressof(args)... };
   THROW_ON_CUDA_DRV_ERROR(cuLaunchKernel(
     f.get()
-  , 1, 1, 1
-  , 1, 1, 1
-  , 0, stream.get(), args, 0
+  , shape.grid_size,  1, 1
+  , shape.block_size, 1, 1
+  , 0, stream.get(), args_ptrs, 0
   ));
 }
+
+inline void graph_launch(cuda_compiled_graph& cgraph, cuda_stream& stream)
+{
+  THROW_ON_CUDA_DRV_ERROR(cuGraphLaunch(cgraph.get(), stream.get()));
+}
+
+///////////////////////////////////////////////////////////////////////////////
 
 int main()
 {
@@ -1018,18 +1229,94 @@ int main()
   
   cuda_context context;
 
-  cuda_module module("noop.cubin");
+  cuda_module module("kernels.cubin");
 
-  cuda_function noop(module, "noop");
+  cuda_function     hello_world(module, "hello_world_kernel");
+  cuda_launch_shape hello_world_shape(cuda_compute_occupancy(hello_world));
 
-  cuda_stream stream;
+  cuda_function     noop(module, "noop_kernel");
+  cuda_launch_shape noop_shape(cuda_compute_occupancy(noop));
 
-  std::cout << experiment(
-    "traditional_launch"
-  , [&] { traditional_launch(noop, stream); }
-  , xrange(128), xrange(4096)
-  ) << std::endl;
+  cuda_function     hang(module, "hang_kernel");
+  cuda_launch_shape hang_shape(cuda_compute_occupancy(hang));
 
-  stream.wait();
+  cuda_function     payload(module, "payload_kernel");
+  cuda_launch_shape payload_shape(cuda_compute_occupancy(payload));
+
+  // Print CSV header first row (variable names)
+  std::cout << "Test"
+     << "," << "Kernels per Graph"
+     << "," << "Warmup Sample Size" 
+     << "," << "Sample Size"
+     << "," << "Average Execution Time"
+     << "," << "Execution Time Uncertainty"
+     << std::endl;
+
+  // Print CSV header second row (variable units)
+  std::cout << ""
+     << "," << ""
+     << "," << "samples"
+     << "," << "samples"
+     << "," << "seconds"
+     << "," << "seconds"
+     << std::endl;
+
+  {
+    cuda_stream stream;
+
+    auto result = experiment(
+      128, 4096, [&] { traditional_launch(noop, stream, noop_shape); }
+    );
+
+    std::cout << "traditional_launch_linearly_dependent"
+       << "," << 1
+       << result
+       << std::endl;
+
+    stream.wait();
+  }
+
+  {
+    auto constexpr sizes = make_index_array(
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
+    , 32,   48,   64,   80,   96,   112,  128 
+    , 256,  384,  512,  640,  768,  896,  1024
+    , 2048, 3072, 4096, 5120, 6144, 7168, 8192
+    );
+
+    for (auto size : sizes)
+    {
+      cuda_compiled_graph cg;
+
+      auto compile_result = experiment(
+        32, 256
+      , [&] { cg = MV(compile_graph_linearly_dependent(noop, noop_shape, size)); }
+      , [&] { cg.reset(); }
+      );
+
+      std::cout << "graph_compile_linearly_dependent"
+         << "," << size
+         << compile_result
+         << std::endl;
+    }
+
+    for (auto size : sizes)
+    {
+      cuda_stream stream;
+
+      auto cg = compile_graph_linearly_dependent(noop, noop_shape, size);
+
+      auto launch_result = experiment(32, 256, [&] { graph_launch(cg, stream); });
+
+      std::cout << "graph_launch_linearly_dependent"
+         << "," << size
+         << launch_result
+         << std::endl;
+
+      stream.wait();
+    }
+  }
+
+  THROW_ON_CUDA_DRV_ERROR(cuCtxSynchronize());
 }
 

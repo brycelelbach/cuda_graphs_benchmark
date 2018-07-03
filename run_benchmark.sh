@@ -1,4 +1,10 @@
 #! /bin/bash
+#
+# Copyright 2017 NVIDIA Corporation
+#
+# Distributed under the Boost Software License v1.0 (boost.org/LICENSE_1_0.txt)
+#
+# Author: Bryce Adelstein Lelbach aka wash <brycelelbach@gmail.com>
 
 if [[ $# -ne 4 ]]; then
   echo "Usage: $0 <benchmark> <devices> <runs> <output-directory>"
