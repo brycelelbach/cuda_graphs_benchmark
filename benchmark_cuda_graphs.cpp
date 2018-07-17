@@ -1,8 +1,12 @@
 // Copyright 2018 NVIDIA Corporation
+// Author: Bryce Adelstein Lelbach aka wash <brycelelbach@gmail.com>
 //
 // Distributed under the Boost Software License v1.0 (boost.org/LICENSE_1_0.txt)
-//
-// Author: Bryce Adelstein Lelbach aka wash <brycelelbach@gmail.com>
+
+// WARNING: Not for the faint of heart.
+
+// TODO: Convert to ranges.
+// TODO: Refactor CUDA smart pointer handlers.
 
 /*
 
@@ -113,21 +117,15 @@ Testing
 #include <algorithm>
 #include <numeric>
 #include <vector>
+#include <map>
 #include <string>
 #include <exception>
 #include <iostream>
 #include <chrono>
 #include <cmath>
+#include <cassert>
 
 #include <cuda.h>
-
-//#if 10010 <= CUDA_VERSION 
-  #define cuGraphAddGpuKernelNode(node, graph, deps, deps_size, desc, context) \
-    cuGraphAddKernelNode(node, graph, deps, deps_size, desc)                   \
-    /**/
-
-  #define CUDA_GPU_KERNEL_NODE_PARAMS CUDA_KERNEL_NODE_PARAMS
-//#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -349,21 +347,23 @@ Testing
 
 /// \def AUTORETURNS(...)
 /// \brief Expands to a function definition, including a trailing returning
-///        type, that returns the expression <tt>__VA_ARGS__</tt>. 
+///        type, that returns the expression <tt>__VA_ARGS__</tt>.
 ///
 #define AUTORETURNS(...)                                                      \
-  -> decltype(__VA_ARGS__)                                                    \
   noexcept(noexcept(decltype(__VA_ARGS__)(__VA_ARGS__)))                      \
+  -> decltype(__VA_ARGS__)                                                    \
   { return (__VA_ARGS__); }                                                   \
   /**/
 
-/// \def REFAUTORETURNS(qualifier, ...)
+/// \def AUTOQUALRETURNS(qual...)
 /// \brief Expands to a function definition, including a trailing returning
-///        type and a qualifier, that returns the expression tt>__VA_ARGS__</tt>. 
-#define REFAUTORETURNS(qualifier, ...)                                        \
-  -> decltype(__VA_ARGS__)                                                    \
+///        type and a qualifier, that returns the expression
+///        <tt>__VA_ARGS__</tt>.
+///
+#define AUTOQUALRETURNS(qualifier, ...)                                       \
   qualifier                                                                   \
   noexcept(noexcept(decltype(__VA_ARGS__)(__VA_ARGS__)))                      \
+  -> decltype(__VA_ARGS__)                                                    \
   { return (__VA_ARGS__); }                                                   \
   /**/
 
@@ -440,9 +440,9 @@ public:
   cuda_context(cuda_context const&)     = delete;
   cuda_context(cuda_context&&) noexcept = default;
 
-  CUctx_st& operator*()  const RETURNS(*ptr_.get())
-  CUctx_st* operator->() const RETURNS(ptr_.get())
-  CUctx_st* get()        const RETURNS(ptr_.get())
+  CUctx_st& operator*()  const RETURNS(*ptr_.get());
+  CUctx_st* operator->() const RETURNS(ptr_.get());
+  CUctx_st* get()        const RETURNS(ptr_.get());
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -472,9 +472,9 @@ public:
   cuda_module(cuda_module const&)     = delete;
   cuda_module(cuda_module&&) noexcept = default;
 
-  CUmod_st& operator*()  const RETURNS(*ptr_.get())
-  CUmod_st* operator->() const RETURNS(ptr_.get())
-  CUmod_st* get()        const RETURNS(ptr_.get())
+  CUmod_st& operator*()  const RETURNS(*ptr_.get());
+  CUmod_st* operator->() const RETURNS(ptr_.get());
+  CUmod_st* get()        const RETURNS(ptr_.get());
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -503,9 +503,9 @@ public:
   cuda_function(cuda_function const&)     = delete;
   cuda_function(cuda_function&&) noexcept = default;
 
-  CUfunc_st& operator*()  const RETURNS(*ptr_.get())
-  CUfunc_st* operator->() const RETURNS(ptr_.get())
-  CUfunc_st* get()        const RETURNS(ptr_.get())
+  CUfunc_st& operator*()  const RETURNS(*ptr_.get());
+  CUfunc_st* operator->() const RETURNS(ptr_.get());
+  CUfunc_st* get()        const RETURNS(ptr_.get());
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -536,9 +536,9 @@ public:
   cuda_stream(cuda_stream const&)     = delete;
   cuda_stream(cuda_stream&&) noexcept = default;
 
-  CUstream_st& operator*()  const RETURNS(*ptr_.get())
-  CUstream_st* operator->() const RETURNS(ptr_.get())
-  CUstream_st* get()        const RETURNS(ptr_.get())
+  CUstream_st& operator*()  const RETURNS(*ptr_.get());
+  CUstream_st* operator->() const RETURNS(ptr_.get());
+  CUstream_st* get()        const RETURNS(ptr_.get());
 
   void wait()
   {
@@ -573,9 +573,9 @@ public:
   cuda_graph(cuda_graph const&)     = delete;
   cuda_graph(cuda_graph&&) noexcept = default;
 
-  CUgraph_st& operator*()  const RETURNS(*ptr_.get())
-  CUgraph_st* operator->() const RETURNS(ptr_.get())
-  CUgraph_st* get()        const RETURNS(ptr_.get())
+  CUgraph_st& operator*()  const RETURNS(*ptr_.get());
+  CUgraph_st* operator->() const RETURNS(ptr_.get());
+  CUgraph_st* get()        const RETURNS(ptr_.get());
 };
 
 struct cuda_compiled_graph_deleter final
@@ -611,9 +611,9 @@ public:
   cuda_compiled_graph& operator=(cuda_compiled_graph const&)     = delete;
   cuda_compiled_graph& operator=(cuda_compiled_graph&&) noexcept = default;
 
-  CUgraphExec_st& operator*()  const RETURNS(*ptr_.get())
-  CUgraphExec_st* operator->() const RETURNS(ptr_.get())
-  CUgraphExec_st* get()        const RETURNS(ptr_.get())
+  CUgraphExec_st& operator*()  const RETURNS(*ptr_.get());
+  CUgraphExec_st* operator->() const RETURNS(ptr_.get());
+  CUgraphExec_st* get()        const RETURNS(ptr_.get());
 
   void reset() { ptr_.reset(); }
 };
@@ -655,27 +655,27 @@ public:
 
   // InputIterator requirements
 
-  constexpr auto operator*() RETURNS(current_)
+  constexpr auto operator*() RETURNS(current_);
 
   friend constexpr bool
   operator==(index_iterator const& l, index_iterator const& r)
-  RETURNS(l.current_ == r.current_)
+  RETURNS(l.current_ == r.current_);
   friend constexpr bool
   operator==(sentinel const& l,       index_iterator const& r)
-  RETURNS(l.last     == r.current_)
+  RETURNS(l.last     == r.current_);
   friend constexpr bool
   operator==(index_iterator const& l, sentinel const& r)
-  RETURNS(l.current_ == r.last)
+  RETURNS(l.current_ == r.last);
 
   friend constexpr bool
   operator!=(index_iterator const& l, index_iterator const& r)
-  RETURNS(!(l == r))
+  RETURNS(!(l == r));
   friend constexpr bool
   operator!=(sentinel const& l,       index_iterator const& r)
-  RETURNS(!(l == r))
+  RETURNS(!(l == r));
   friend constexpr bool
   operator!=(index_iterator const& l, sentinel const& r)
-  RETURNS(!(l == r))
+  RETURNS(!(l == r));
 
   // ForwardIterator requirements
 
@@ -716,66 +716,66 @@ public:
   }
 
   friend constexpr index_iterator operator+(T const& l, index_iterator r) 
-  RETURNS(r += l)
+  RETURNS(r += l);
   friend constexpr index_iterator operator+(index_iterator l, T const& r) 
-  RETURNS(l += r)
+  RETURNS(l += r);
 
   friend constexpr index_iterator& operator-=(index_iterator& l, T const& r) 
-  RETURNS(l += -r)
+  RETURNS(l += -r);
 
   friend constexpr index_iterator operator-(index_iterator l, T const& r) 
-  RETURNS(l -= r)
+  RETURNS(l -= r);
 
   friend constexpr auto
   operator-(index_iterator const& l, index_iterator const& r) 
-  RETURNS(l.current_ - r.current_)
+  RETURNS(l.current_ - r.current_);
   friend constexpr auto
   operator-(sentinel const& l,       index_iterator const& r) 
-  RETURNS(l.last     - r.current_)
+  RETURNS(l.last     - r.current_);
   friend constexpr auto
   operator-(index_iterator const& l, sentinel const& r) 
-  RETURNS(l.current_ - r.last)
+  RETURNS(l.current_ - r.last);
 
-  constexpr auto operator[](T n) RETURNS(current_ + MV(n))
+  constexpr auto operator[](T n) RETURNS(current_ + MV(n));
 
   friend constexpr bool
   operator< (index_iterator const& l, index_iterator const& r)
-  RETURNS(MV(l.current_) < MV(r.current_))
+  RETURNS(MV(l.current_) < MV(r.current_));
   friend constexpr bool
   operator> (index_iterator const& l, index_iterator const& r)
-  RETURNS(r < l)
+  RETURNS(r < l);
   friend constexpr bool
   operator<=(index_iterator const& l, index_iterator const& r)
-  RETURNS(!(l > r))
+  RETURNS(!(l > r));
   friend constexpr bool
   operator>=(index_iterator const& l, index_iterator const& r)
-  RETURNS(!(l < r))
+  RETURNS(!(l < r));
 
   friend constexpr bool
   operator< (sentinel const& l, index_iterator const& r)
-  RETURNS(MV(l.last) < MV(r.current_))
+  RETURNS(MV(l.last) < MV(r.current_));
   friend constexpr bool
   operator> (sentinel const& l, index_iterator const& r)
-  RETURNS(r < l)
+  RETURNS(r < l);
   friend constexpr bool
   operator<=(sentinel const& l, index_iterator const& r)
-  RETURNS(!(l > r))
+  RETURNS(!(l > r));
   friend constexpr bool
   operator>=(sentinel const& l, index_iterator const& r)
-  RETURNS(!(l < r))
+  RETURNS(!(l < r));
 
   friend constexpr bool
   operator< (index_iterator const& l, sentinel const& r)
-  RETURNS(MV(l.current_) < MV(r.last))
+  RETURNS(MV(l.current_) < MV(r.last));
   friend constexpr bool
   operator> (index_iterator const& l, sentinel const& r)
-  RETURNS(r < l)
+  RETURNS(r < l);
   friend constexpr bool
   operator<=(index_iterator const& l, sentinel const& r)
-  RETURNS(!(l > r))
+  RETURNS(!(l > r));
   friend constexpr bool
   operator>=(index_iterator const& l, sentinel const& r)
-  RETURNS(!(l < r))
+  RETURNS(!(l < r));
 };
 
 template <typename Iterator, typename Sentinel> 
@@ -790,10 +790,10 @@ public:
     : first_(MV(first)), last_(MV(last))
   {}
 
-  Iterator constexpr begin() const RETURNS(first_)
-  Sentinel constexpr end()   const RETURNS(last_)
+  Iterator constexpr begin() const RETURNS(first_);
+  Sentinel constexpr end()   const RETURNS(last_);
 
-  auto size() const RETURNS(last_ - first_)
+  auto size() const RETURNS(last_ - first_);
 };
 
 // Python style `xrange`.
@@ -809,23 +809,132 @@ auto constexpr xrange(Integral last)
 
 template <typename... Sizes>
 auto constexpr make_index_array(Sizes&&... sizes)
-RETURNS(std::array<int64_t, sizeof...(Sizes)>{FWD(sizes)...})
+RETURNS(std::array<int64_t, sizeof...(Sizes)>{FWD(sizes)...});
+
+///////////////////////////////////////////////////////////////////////////////
+// `std::transform_reduce` and `std::reduce` (Iterator and Range Interfaces).
+
+template <
+  typename InputItBegin, typename InputItEnd
+, typename T
+, typename ReduceOperation, typename TransformOperation
+>
+T constexpr transform_reduce(
+  InputItBegin first, InputItEnd last
+, T init
+, ReduceOperation reduce_op
+, TransformOperation transform_op
+)
+{
+  while (first != last)
+    init = reduce_op(MV(init), transform_op(*first++));
+  return init;
+}
+template <
+  typename Range
+, typename T
+, typename ReduceOperation, typename TransformOperation
+>
+auto constexpr transform_reduce_r(
+  Range&& r
+, T&& init
+, ReduceOperation&& reduce_op
+, TransformOperation&& transform_op
+)
+{
+  return transform_reduce(
+    r.begin(), r.end(), FWD(init), FWD(reduce_op), FWD(transform_op)
+  ); 
+}
+
+template <
+  typename InputItBegin0, typename InputItEnd0
+, typename InputIt1
+, typename T
+, typename ReduceOperation, typename TransformOperation
+>
+T constexpr transform_reduce(
+  InputItBegin0 first0, InputItEnd0 last0
+, InputIt1 first1
+, T init
+, ReduceOperation reduce_op
+, TransformOperation transform_op
+)
+{
+  while (first0 != last0)
+    init = reduce_op(MV(init), transform_op(*first0++, *first1++));
+  return init;
+}
+template <
+  typename Range0, typename Range1
+, typename T
+, typename ReduceOperation, typename TransformOperation
+>
+auto constexpr transform_reduce_r(
+  Range0&& r0, Range1&& r1
+, T&& init
+, ReduceOperation&& reduce_op
+, TransformOperation&& transform_op
+)
+{
+  return transform_reduce(
+    r0.begin(), r0.end(), r1.begin(), FWD(init), FWD(reduce_op), FWD(transform_op)
+  ); 
+}
+
+template <
+  typename InputItBegin, typename InputItEnd
+, typename T
+, typename ReduceOperation
+>
+T constexpr reduce(
+  InputItBegin first, InputItEnd last
+, T init
+, ReduceOperation reduce_op
+)
+{
+  for (; first != last; ++first) 
+    init = reduce_op(MV(init), *first);
+  return init;
+}
+template <typename Range, typename T, typename ReduceOperation>
+auto constexpr reduce_r(Range&& r, T&& init, ReduceOperation&& reduce_op)
+{
+  return reduce(r.begin(), r.end(), FWD(init), FWD(reduce_op));
+}
+
+template <typename InputItBegin, typename InputItEnd, typename T>
+auto constexpr reduce(InputItBegin first, InputItEnd last, T init)
+{
+  return reduce(first, last, FWD(init), std::plus<>());
+}
+template <typename Range, typename T>
+auto constexpr reduce_r(Range&& r, T&& init)
+{
+  return reduce(r.begin(), r.end(), FWD(init));
+}
+
+template <typename InputItBegin, typename InputItEnd>
+auto constexpr reduce(InputItBegin first, InputItEnd last)
+{
+  using T = typename std::iterator_traits<InputItBegin>::value_type;
+  return reduce(first, last, T{}, std::plus<>());
+}
+template <typename Range>
+auto constexpr reduce_r(Range&& r)
+{
+  return reduce(r.begin(), r.end());
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 
-template <
-  typename InputIt, typename T, typename BinaryOperation, typename UnaryOperation
->
-T constexpr transform_reduce(
-  InputIt first, InputIt last
-, T init
-, BinaryOperation binary_op
-, UnaryOperation  unary_op
+template <typename T>
+bool constexpr floating_point_equal(
+  T x, T y, T epsilon = std::numeric_limits<T>::epsilon()
 )
 {
-  for (; first != last; ++first)
-    init = binary_op(MV(init), unary_op(*first));
-  return MV(init);
+  if ((x + epsilon >= y) && (x - epsilon <= y)) return true;
+  else return false;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -843,7 +952,7 @@ public:
   constexpr squared_difference(squared_difference const& rhs) = default;
   constexpr squared_difference(squared_difference&& rhs)      = default;
 
-  T constexpr operator()(T x) const RETURNS((x - average_) * (x - average_))
+  T constexpr operator()(T x) const RETURNS((x - average_) * (x - average_));
 };
 
 template <typename T>
@@ -939,23 +1048,22 @@ T constexpr sample_standard_deviation(InputIt first, InputIt last, T average)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-
 // Formulas for propagation of uncertainty from:
 //
 //   https://en.wikipedia.org/wiki/Propagation_of_uncertainty#Example_formulas
 //
 // Even though it's Wikipedia, I trust it as I helped write that table.
 //
-// XXX Replace with a proper reference.
+// TODO: Replace with a proper reference.
 
 // Compute the propagated uncertainty from the multiplication of two uncertain
 // values, `A +/- A_unc` and `B +/- B_unc`. Given `f = AB` or `f = A/B`, where
-// `A != 0` and `B != 0`, the uncertainty in `f` is approximately:
+// `A != 0` and `B != 0`, the relative uncertainty in `f` is approximately:
 //
 //   f_unc = abs(f) * sqrt((A_unc / A) ^ 2 + (B_unc / B) ^ 2)
 //
 template <typename T>
-T uncertainty_multiplicative(
+T constexpr uncertainty_multiplicative(
     T const& f
   , T const& A, T const& A_unc
   , T const& B, T const& B_unc
@@ -967,18 +1075,38 @@ T uncertainty_multiplicative(
 
 // Compute the propagated uncertainty from addition of two uncertain values,
 // `A +/- A_unc` and `B +/- B_unc`. Given `f = cA + dB` (where `c` and `d` are
-// certain constants), the uncertainty in `f` is approximately:
+// certain constants), the relative uncertainty in `f` is approximately:
 //
 //   f_unc = sqrt(c ^ 2 * A_unc ^ 2 + d ^ 2 * B_unc ^ 2)
 //
 template <typename T>
-T uncertainty_additive(
+T constexpr uncertainty_additive(
     T const& c, T const& A_unc
   , T const& d, T const& B_unc
     )
 {
   return std::sqrt((c * c * A_unc * A_unc) + (d * d * B_unc * B_unc));
 }
+
+// Given an uncertain value `A` and its absolute uncertainty `+/- A_abs_unc`,
+// compute its relative uncertainty (a unitless value between 0 and 1):
+//
+//   A_rel_unc = A_abs_unc / A
+//
+// Precondition: `0 != A`.
+//
+template <typename T>
+T constexpr uncertainty_absolute_to_relative(T const& A, T const& A_abs_unc)
+RETURNS(A_abs_unc / A);
+
+// Given an uncertain value `A` and its relative uncertainty `+/- A * A_rel_unc`,
+// compute its absolute uncertainty:
+//
+//   A_abs_unc = A_rel_unc * A
+//
+template <typename T>
+T constexpr uncertainty_relative_to_absolute(T const& A, T const& A_rel_unc)
+RETURNS(A_rel_unc * A);
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -1001,27 +1129,143 @@ T constexpr round_to_precision(T x, N ndigits)
   return (std::floor(x * m * pwr + 0.5) / pwr) * m;
 }
 
+// Round `x` to its significant digit.
+template <typename T>
+T constexpr round_to_precision(T x)
+{
+  return round_to_precision(x, find_significant_digit(x));
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+/*
+concept UncertainValue
+{
+  using value_type = ...;
+
+  // Returns: The uncertain value rounded to its significant digit or the
+  // significant digit of the absolute uncertainty if it is higher.
+  value_type value() const;
+  operator value_type() const { return value(); } 
+ 
+  // Returns: The absolute uncertanity rounded to its significant digit or the
+  // significant of the uncertain value if it is higher.
+  value_type absolute_uncertainty() const;
+
+  // Returns: The relative uncertanity rounded to its significant digit.
+  value_type relative_uncertainty() const;
+
+  // Returns: The unrounded uncertain value.
+  value_type value_unrounded() const;
+
+  // Returns: The unrounded absolute uncertainty.
+  value_type absolute_uncertainty_unrounded() const;
+
+  // Returns: The unrounded relative uncertainty.
+  value_type relative_uncertainty_unrounded() const;
+
+  friend std::ostream& operator<<(std::ostream& os, UncertainValue const& uv);
+};
+*/
+
+template <typename T, typename Derived>
+struct uncertain_value
+{
+  using value_type = T;
+
+  constexpr Derived const& derived() const noexcept
+  {
+    return static_cast<Derived const&>(*this);
+  }
+
+  value_type constexpr value() const
+  {
+    int32_t const precision = std::max(
+      find_significant_digit(derived().value_unrounded())
+    , find_significant_digit(derived().absolute_uncertainty_unrounded())
+    );
+    return round_to_precision(derived().value_unrounded(), precision);
+  }
+
+  constexpr operator value_type() const { return derived().value(); } 
+
+  value_type constexpr absolute_uncertainty() const
+  {
+    int32_t const precision = std::max(
+      find_significant_digit(derived().value_unrounded())
+    , find_significant_digit(derived().absolute_uncertainty_unrounded())
+    );
+    return round_to_precision(
+      derived().absolute_uncertainty_unrounded(), precision
+    );
+  }
+
+  value_type constexpr relative_uncertainty() const 
+  {
+    return round_to_precision(derived().relative_uncertainty_unrounded());
+  }
+};
+
+template <typename T, typename Derived>
+std::ostream&
+operator<<(std::ostream& os, uncertain_value<T, Derived> const& uc)
+RETURNS(
+  os        << uc.value()
+     << "," << uc.absolute_uncertainty()
+     << "," << 100.0 * uc.relative_uncertainty()
+);
+
 ///////////////////////////////////////////////////////////////////////////////
 
 template <typename Time, typename SampleSize = int64_t>
 struct experiment_results final
+  : uncertain_value<Time, experiment_results<Time, SampleSize>>
 {
-  SampleSize const  warmup_size;
-  SampleSize const  sample_size;
-  Time const        average_time;   // Arithmetic mean of trial times in seconds.
-  Time const        stdev_time;     // Sample standard deviation of trial times.
+  using base_type = uncertain_value<Time, experiment_results<Time, SampleSize>>;
+
+  using typename base_type::value_type;
+
+  SampleSize const warmup_size;
+  SampleSize const sample_size;
+  value_type const average_time;   // Arithmetic mean of trial times in seconds.
+  value_type const stdev_time;     // Sample standard deviation of trial times.
 
   constexpr experiment_results(
       SampleSize  warmup_size_
     , SampleSize  sample_size_
-    , Time        average_time_
-    , Time        stdev_time_
+    , value_type  average_time_
+    , value_type  stdev_time_
     )
     : warmup_size(MV(warmup_size_))
     , sample_size(MV(sample_size_))
     , average_time(MV(average_time_))
     , stdev_time(MV(stdev_time_))
   {}
+
+  value_type constexpr value_unrounded() const
+  RETURNS(average_time);
+
+  value_type constexpr absolute_uncertainty_unrounded() const
+  RETURNS(stdev_time);
+
+  value_type constexpr relative_uncertainty_unrounded() const noexcept
+  {
+    return uncertainty_absolute_to_relative(
+      value_unrounded(), absolute_uncertainty_unrounded()
+    );
+  }
+};
+
+template <typename Time, typename SampleSize>
+std::ostream&
+operator<<(std::ostream& os, experiment_results<Time, SampleSize> const& e)
+{
+  os        << e.warmup_size
+     << "," << e.sample_size
+     << "," << static_cast<
+                 typename experiment_results<Time, SampleSize>::base_type const&
+               >(e);
+  return os;
 };
 
 template <typename Time, typename SampleSize>
@@ -1040,31 +1284,151 @@ auto constexpr make_experiment_results(
   );
 }
 
-template <typename Time, typename SampleSize>
-auto constexpr round(experiment_results<Time, SampleSize> e)
+///////////////////////////////////////////////////////////////////////////////
+
+template <typename T>
+struct linear_regression_no_intercept final
+  : uncertain_value<T, linear_regression_no_intercept<T>>
 {
-  int32_t const precision = std::max(
-    find_significant_digit(e.average_time)
-  , find_significant_digit(e.stdev_time)
+  using base_type = uncertain_value<T, linear_regression_no_intercept<T>>;
+
+  using typename base_type::value_type;
+
+  value_type const slope;
+  value_type const r_squared;
+
+  // Precondition: `0 <= r_squared_ && 1 >= r_squared_`.
+  constexpr linear_regression_no_intercept(T slope_, T r_squared_)
+    : slope(MV(slope_))
+    , r_squared(MV(r_squared_))
+  {}
+
+  value_type constexpr value_unrounded() const
+  RETURNS(slope);
+
+  value_type constexpr absolute_uncertainty_unrounded() const noexcept
+  {
+    return uncertainty_relative_to_absolute(
+      value_unrounded(), relative_uncertainty_unrounded()
+    );
+  }
+
+  value_type constexpr relative_uncertainty_unrounded() const
+  RETURNS(1.0 - r_squared);
+};
+
+template <typename T>
+auto constexpr make_linear_regression_no_intercept(T slope, T r_squared)
+RETURNS(linear_regression_no_intercept<T>(MV(slope), MV(r_squared)));
+
+///////////////////////////////////////////////////////////////////////////////
+
+/// \brief Computes a linear regression of \a y vs \a x with an origin of 
+///        \a (x_origin, y_origin) with no intercept term and no variance in
+///        \a x via ordinary least squares.
+///
+/// Requires: `IndependentValues` and `DependentValues` are random access
+/// ranges with arithmetic value types.
+///
+/// Preconditions: `x.size() == y.size()`.
+///
+template <typename IndependentValues, typename DependentValues, typename T>
+auto constexpr ordinary_least_squares_estimator_no_intercept(
+  IndependentValues&& x 
+, DependentValues&&   y
+, T x_origin
+, T y_origin
+)
+{
+  // TODO: Tests for non (0, 0) origins.
+
+  assert(x.size() == y.size());
+
+  if (0 == x.size())
+    return make_linear_regression_no_intercept(T{}, T{});
+
+  auto const n  = x.size();
+
+  T const x_sum = reduce_r(x, T{});
+  T const y_sum = reduce_r(y, T{});
+
+  T const x_squared_sum = transform_reduce_r(
+    x, T{}, std::plus<>{}
+  , [&] (auto x) { return (x - x_origin) * (x - x_origin); }
   );
 
-  return make_experiment_results(
-    e.warmup_size
-  , e.sample_size
-  , round_to_precision(e.average_time, precision)
-  , round_to_precision(e.stdev_time, precision)
+  T const y_squared_sum = transform_reduce_r(
+    y, T{}, std::plus<>{}
+  , [&] (auto y) { return (y - y_origin) * (y - y_origin); }
   );
+
+  T const xy_sum = transform_reduce_r(
+    x, y, T{}, std::plus<>{}
+  , [&] (auto x, auto y) { return (x - x_origin) * (y - y_origin); }
+  );
+
+  T const x_avg         = x_sum / n;
+  T const y_avg         = y_sum / n;
+  T const x_squared_avg = x_squared_sum / n;
+  T const y_squared_avg = y_squared_sum / n;
+  T const xy_avg        = xy_sum / n;
+
+  // Formula for simple linear regression modelling with ordinary least squares
+  // with no intercept:
+  //
+  //   https://en.wikipedia.org/wiki/Simple_linear_regression#Simple_linear_regression_without_the_intercept_term_(single_regressor)
+  // 
+  // TODO: Replace with a proper reference.
+
+  // slope = avg((x - x_origin) * (y - y_origin))
+  //       / avg((x - x_origin) * (x - x_origin))
+
+  T const slope = ( !floating_point_equal(T{}, x_squared_avg)
+                  ? xy_avg / x_squared_avg
+                  : T{});
+
+  // Formula for the coefficient of determination for linear regression models:
+  //
+  //   http://www.statisticshowto.com/probability-and-statistics/coefficient-of-determination-r-squared/
+  // 
+  // TODO: Replace with a proper reference.
+
+  // r = (sum(x * y) - avg(x) * avg(y))
+  //   / sqrt((sum(x * x) - avg(x) ^ 2) * (sum(y * y) - avg(y) ^ 2))
+  //
+  // r_squared = r ^ 2
+
+  auto const r_denom_squared = (x_squared_sum - x_avg * x_avg)
+                             * (y_squared_sum - y_avg * y_avg);
+
+  auto const r = ( !floating_point_equal(r_denom_squared, 0.0)
+                 ? (xy_sum - x_avg * y_avg) / std::sqrt(r_denom_squared)
+                 : 0.0);
+
+  auto const r_squared = r * r;
+
+  return make_linear_regression_no_intercept(slope, r_squared);
 }
 
-template <typename Time, typename SampleSize>
-std::ostream&
-operator<<(std::ostream& os, experiment_results<Time, SampleSize> const& e)
-RETURNS(
-  os << "," << e.warmup_size
-     << "," << e.sample_size
-     << "," << e.average_time
-     << "," << e.stdev_time
+/// \brief Computes a linear regression of \a y vs \a x with an origin of 
+///        \a (0.0, 0.0) with no intercept term and no variance in a x via
+///        ordinary least squares.
+///
+/// Requires: `IndependentValues` and `DependentValues` are random access
+/// ranges with arithmetic value types.
+///
+/// Preconditions: `x.size() == y.size()`.
+///
+template <typename IndependentValues, typename DependentValues>
+auto constexpr ordinary_least_squares_estimator_no_intercept(
+  IndependentValues&& x 
+, DependentValues&&   y
 )
+{
+  return ordinary_least_squares_estimator_no_intercept(
+    FWD(x), FWD(y), double(0.0), double(0.0)
+  );
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -1105,9 +1469,9 @@ auto experiment(
   double const stdev_time
     = sample_standard_deviation(times.begin(), times.end(), average_time);
 
-  return round(make_experiment_results(
+  return make_experiment_results(
     warmup_sample_size, sample_size, average_time, stdev_time
-  ));
+  );
 }
 
 template <typename Size, typename Test>
@@ -1173,7 +1537,7 @@ auto compile_graph_linearly_dependent(
 
   void* args_ptrs[] = { std::addressof(args)... };
 
-  CUDA_GPU_KERNEL_NODE_PARAMS desc;
+  CUDA_KERNEL_NODE_PARAMS desc;
   desc.func = f.get();
   desc.gridDimX = shape.grid_size;
   desc.gridDimY = 1;
@@ -1190,8 +1554,8 @@ auto compile_graph_linearly_dependent(
 
   for (auto t : xrange(size))
   {
-    THROW_ON_CUDA_DRV_ERROR(cuGraphAddGpuKernelNode(
-      &next, graph.get(), &prev, prev != nullptr, &desc, NULL
+    THROW_ON_CUDA_DRV_ERROR(cuGraphAddKernelNode(
+      &next, graph.get(), &prev, prev != nullptr, &desc
     ));
 
     std::swap(next, prev);
@@ -1223,6 +1587,182 @@ inline void graph_launch(cuda_compiled_graph& cgraph, cuda_stream& stream)
 
 ///////////////////////////////////////////////////////////////////////////////
 
+std::vector<std::string> split(std::string const& str, std::string const& delim)
+{
+  // TODO Use `std::string_view` when possible.
+  std::vector<std::string> tokens;
+  std::string::size_type prev = 0, pos = 0;
+  do
+  {
+    pos = str.find(delim, prev);
+    if (pos == std::string::npos) pos = str.length();
+    std::string token = str.substr(prev, pos - prev);
+    if (!token.empty()) tokens.push_back(token);
+    prev = pos + delim.length();
+  }
+  while (pos < str.length() && prev < str.length());
+  return tokens;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+struct command_line_option_error : std::exception
+{
+  virtual ~command_line_option_error() noexcept {}
+  virtual const char* what() const noexcept = 0;
+};
+
+struct only_one_option_allowed : command_line_option_error
+{
+  // Construct a new `only_one_option_allowed` exception. `key` is the
+  // option name and `[first, last)` is a sequence of
+  // `std::pair<std::string const, std::string>`s (the values).
+  template <typename InputIt>
+  only_one_option_allowed(std::string const& key, InputIt first, InputIt last)
+    : message()
+  {
+    message  = "Only one `--";
+    message += key;
+    message += "` option is allowed, but multiple were received: ";
+
+    for (; first != last; ++first)
+    {
+      message += "`";
+      message += (*first).second;
+      message += "` ";
+    }
+
+    // Remove the trailing space added by the last iteration of the above loop.
+    message.erase(message.size() - 1, 1);
+
+    message += ".";
+  }
+
+  virtual ~only_one_option_allowed() noexcept {}
+
+  virtual const char* what() const noexcept
+  {
+    return message.c_str();
+  }
+
+private:
+  std::string message;
+};
+
+struct required_option_missing : command_line_option_error
+{
+  // Construct a new `requirement_option_missing` exception. `key` is the
+  // option name.
+  required_option_missing(std::string const& key)
+    : message()
+  {
+    message  = "`--";
+    message += key;
+    message += "` option is required.";
+  }
+
+  virtual ~required_option_missing() noexcept {}
+
+  virtual const char* what() const noexcept
+  {
+    return message.c_str();
+  }
+
+private:
+  std::string message;
+};
+
+struct command_line_processor
+{
+  typedef std::vector<std::string> positional_options_type;
+
+  typedef std::multimap<std::string, std::string> keyword_options_type;
+
+  typedef std::pair<
+    keyword_options_type::const_iterator
+  , keyword_options_type::const_iterator
+  > keyword_option_values;
+
+  command_line_processor(int argc, char** argv)
+    : pos_args(), kw_args()
+  { // {{{
+    for (int i = 1; i < argc; ++i)
+    {
+      std::string arg(argv[i]);
+
+      // Look for --key or --key=value options.
+      if (arg.substr(0, 2) == "--")
+      {
+        std::string::size_type n = arg.find('=', 2);
+
+        keyword_options_type::value_type key_value;
+
+        if (n == std::string::npos) // --key
+          kw_args.insert(keyword_options_type::value_type(
+            arg.substr(2), ""
+          ));
+        else                        // --key=value
+          kw_args.insert(keyword_options_type::value_type(
+            arg.substr(2, n - 2), arg.substr(n + 1)
+          ));
+
+        kw_args.insert(key_value);
+      }
+      else // Assume it's positional.
+        pos_args.push_back(arg);
+    }
+  } // }}}
+
+  // Return the value for option `key`.
+  //
+  // Throws:
+  // * `only_one_option_allowed` if there is more than one value for `key`.
+  // * `required_option_missing` if there is no value for `key`.
+  std::string operator()(std::string const& key) const
+  {
+    keyword_option_values v = kw_args.equal_range(key);
+
+    keyword_options_type::difference_type d = std::distance(v.first, v.second);
+
+    if      (1 < d)  // Too many options.
+      throw only_one_option_allowed(key, v.first, v.second);
+    else if (0 == d) // No option.
+      throw required_option_missing(key);
+
+    return (*v.first).second;
+  }
+
+  // Return the value for option `key`, or `dflt` if `key` has no value.
+  //
+  // Throws: `only_one_option_allowed` if there is more than one value for `key`.
+  std::string operator()(std::string const& key, std::string const& dflt) const
+  {
+    keyword_option_values v = kw_args.equal_range(key);
+
+    keyword_options_type::difference_type d = std::distance(v.first, v.second);
+
+    if (1 < d)  // Too many options.
+      throw only_one_option_allowed(key, v.first, v.second);
+
+    if (0 == d) // No option.
+      return dflt;
+    else        // 1 option.
+      return (*v.first).second;
+  }
+
+  // Returns `true` if the option `key` was specified at least once.
+  bool has(std::string const& key) const
+  {
+    return kw_args.count(key) > 0;
+  }
+
+private:
+  positional_options_type pos_args;
+  keyword_options_type    kw_args;
+};
+
+///////////////////////////////////////////////////////////////////////////////
+
 int main()
 {
   cuInit(0);
@@ -1246,22 +1786,26 @@ int main()
   // Print CSV header first row (variable names)
   std::cout << "Test"
      << "," << "Kernels per Graph"
+     << "," << "Dependencies per Graph"
      << "," << "Warmup Sample Size" 
      << "," << "Sample Size"
      << "," << "Average Execution Time"
-     << "," << "Execution Time Uncertainty"
+     << "," << "Execution Time Absolute Uncertainty"
+     << "," << "Execution Time Relative Uncertainty"
      << std::endl;
 
   // Print CSV header second row (variable units)
   std::cout << ""
-     << "," << ""
+     << "," << "vertices"
+     << "," << "edges"
      << "," << "samples"
      << "," << "samples"
      << "," << "seconds"
      << "," << "seconds"
+     << "," << "%"
      << std::endl;
 
-  {
+  auto traditional_result = [&] {
     cuda_stream stream;
 
     auto result = experiment(
@@ -1270,11 +1814,14 @@ int main()
 
     std::cout << "traditional_launch_linearly_dependent"
        << "," << 1
-       << result
+       << "," << 1
+       << "," << result
        << std::endl;
 
     stream.wait();
-  }
+
+    return result;
+  }();
 
   {
     auto constexpr sizes = make_index_array(
@@ -1284,19 +1831,26 @@ int main()
     , 2048, 3072, 4096, 5120, 6144, 7168, 8192
     );
 
+    std::vector<decltype(traditional_result)> compile_results;
+    compile_results.reserve(sizes.size());
+
+    std::vector<decltype(traditional_result)> launch_results;
+    launch_results.reserve(sizes.size());
+
     for (auto size : sizes)
     {
       cuda_compiled_graph cg;
 
-      auto compile_result = experiment(
+      compile_results.emplace_back(experiment(
         32, 256
       , [&] { cg = MV(compile_graph_linearly_dependent(noop, noop_shape, size)); }
       , [&] { cg.reset(); }
-      );
+      ));
 
       std::cout << "graph_compile_linearly_dependent"
          << "," << size
-         << compile_result
+         << "," << (size - 1)
+         << "," << compile_results.back()
          << std::endl;
     }
 
@@ -1306,15 +1860,48 @@ int main()
 
       auto cg = compile_graph_linearly_dependent(noop, noop_shape, size);
 
-      auto launch_result = experiment(32, 256, [&] { graph_launch(cg, stream); });
+      launch_results.emplace_back(experiment(
+        32, 256, [&] { graph_launch(cg, stream); }
+      ));
 
       std::cout << "graph_launch_linearly_dependent"
          << "," << size
-         << launch_result
+         << "," << (size - 1)
+         << "," << launch_results.back()
          << std::endl;
 
       stream.wait();
     }
+
+    std::cout << std::endl;
+
+    auto const compile_model
+      = ordinary_least_squares_estimator_no_intercept(
+          sizes, compile_results
+        );
+
+    auto const launch_model
+      = ordinary_least_squares_estimator_no_intercept(
+          sizes, launch_results
+        );
+
+    std::cout << "traditional_launch_linearly_dependent"
+       << "," << traditional_result.value_unrounded()
+       << "," << traditional_result.absolute_uncertainty_unrounded() 
+       << "," << traditional_result.relative_uncertainty_unrounded()
+       << std::endl;
+
+    std::cout << "graph_compile_linearly_dependent"
+       << "," << compile_model.value_unrounded()
+       << "," << compile_model.absolute_uncertainty_unrounded() 
+       << "," << compile_model.relative_uncertainty_unrounded()
+       << std::endl;
+
+    std::cout << "graph_launch_linearly_dependent"
+       << "," << launch_model.value_unrounded()
+       << "," << launch_model.absolute_uncertainty_unrounded() 
+       << "," << launch_model.relative_uncertainty_unrounded()
+       << std::endl;
   }
 
   THROW_ON_CUDA_DRV_ERROR(cuCtxSynchronize());

@@ -12,9 +12,9 @@ CUDATT_ROOT=/home/wash/development/nvidia/cuda_linux_p4
 CUDATT_NVCC=${CUDATT_ROOT}/sw/gpgpu/bin/x86_64_Linux_release/nvcc
 CUDATT_FLAGS="-I ${CUDATT_ROOT}/sw/gpgpu/thrust"
 
-CUDA10_ROOT=/home/wash/install/nvidia/cuda-10.0.84
-CUDA10_NVCC=${CUDA10_ROOT}/bin/nvcc
-CUDA10_FLAGS=""
+#CUDA10_ROOT=/home/wash/install/nvidia/cuda-10.0.84
+#CUDA10_NVCC=${CUDA10_ROOT}/bin/nvcc
+#CUDA10_FLAGS=""
 
 NVCC_CU_FLAGS="--std=c++14 -cubin -gencode arch=compute_61,code=sm_61"
 
@@ -27,10 +27,10 @@ ${CUDATT_NVCC} ${CUDATT_FLAGS} ${NVCC_CU_FLAGS} kernels.cu -o ${BUILD_DIR}/TT/ke
 echo "Building CUDA Top-of-Trunk Graphs Benchmark Suite"
 ${CUDATT_NVCC} ${CUDATT_FLAGS} ${NVCC_CPP_FLAGS} benchmark_cuda_graphs.cpp -o ${BUILD_DIR}/TT/benchmark_cuda_graphs
 
-mkdir -p ${BUILD_DIR}/10
+#mkdir -p ${BUILD_DIR}/10
 
-${CUDA10_NVCC} ${CUDA10_FLAGS} ${NVCC_CU_FLAGS} kernels.cu -o ${BUILD_DIR}/10/kernels.cubin
+#${CUDA10_NVCC} ${CUDA10_FLAGS} ${NVCC_CU_FLAGS} kernels.cu -o ${BUILD_DIR}/10/kernels.cubin
 
-echo "Building CUDA 10.0 Graphs Benchmark Suite"
-${CUDA10_NVCC} ${CUDA10_FLAGS} ${NVCC_CPP_FLAGS} benchmark_cuda_graphs.cpp -o ${BUILD_DIR}/10/benchmark_cuda_graphs
+#echo "Building CUDA 10.0 Graphs Benchmark Suite"
+#${CUDA10_NVCC} ${CUDA10_FLAGS} ${NVCC_CPP_FLAGS} benchmark_cuda_graphs.cpp -o ${BUILD_DIR}/10/benchmark_cuda_graphs
 
