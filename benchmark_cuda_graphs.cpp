@@ -7,6 +7,8 @@
 
 // TODO: Convert to ranges.
 // TODO: Refactor CUDA smart pointer handlers.
+// TODO: My kingdom for `std::string_view`.
+// TODO: Purge std::string
 
 /*
 
@@ -462,15 +464,20 @@ private:
   std::unique_ptr<CUmod_st, cuda_module_deleter> ptr_;
 
 public:
-  cuda_module(char const* filename)
+  cuda_module() = default;
+
+  cuda_module(std::string const& filename)
   {
     CUmod_st* module;
-    THROW_ON_CUDA_DRV_ERROR(cuModuleLoad(&module, filename));
+    THROW_ON_CUDA_DRV_ERROR(cuModuleLoad(&module, filename.c_str()));
     ptr_.reset(module);
   }
 
   cuda_module(cuda_module const&)     = delete;
   cuda_module(cuda_module&&) noexcept = default;
+
+  cuda_module& operator=(cuda_module const&)     = delete;
+  cuda_module& operator=(cuda_module&&) noexcept = default;
 
   CUmod_st& operator*()  const RETURNS(*ptr_.get());
   CUmod_st* operator->() const RETURNS(ptr_.get());
@@ -807,9 +814,25 @@ auto constexpr xrange(Integral last)
   );
 }
 
-template <typename... Sizes>
+template <typename T, typename... Sizes>
 auto constexpr make_index_array(Sizes&&... sizes)
-RETURNS(std::array<int64_t, sizeof...(Sizes)>{FWD(sizes)...});
+RETURNS(std::array<T, sizeof...(Sizes)>{FWD(sizes)...});
+
+template <uint64_t N>
+std::ostream& operator<<(std::ostream& os, std::array<int32_t, N> const& a)
+{
+  // NOTE: We're not using range-based for and `xrange` here due to a GCC ICE.
+  for (int32_t i = 0; i < a.size(); ++i)
+    os << (0 == i ? "" : ",") << a[i];
+  return os;
+}
+
+inline std::ostream& operator<<(std::ostream& os, std::vector<int32_t> const& v)
+{
+  for (int32_t i = 0; i < v.size(); ++i)
+    os << (0 == i ? "" : ",") << v[i];
+  return os;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // `std::transform_reduce` and `std::reduce` (Iterator and Range Interfaces).
@@ -959,13 +982,13 @@ template <typename T>
 struct value_and_count final
 {
   T       value;
-  int64_t count;
+  int32_t count;
 
   constexpr value_and_count(T value_) 
     : value(MV(value_)), count(1)
   {}
 
-  constexpr value_and_count(T value_, int64_t count_)
+  constexpr value_and_count(T value_, int32_t count_)
     : value(MV(value_)), count(count_)
   {}
 
@@ -1143,6 +1166,8 @@ concept UncertainValue
 {
   using value_type = ...;
 
+  std::string_view name() const noexcept;
+
   // Returns: The uncertain value rounded to its significant digit or the
   // significant digit of the absolute uncertainty if it is higher.
   value_type value() const;
@@ -1173,10 +1198,18 @@ struct uncertain_value
 {
   using value_type = T;
 
+private:
+  std::string name_;
+
   constexpr Derived const& derived() const noexcept
   {
     return static_cast<Derived const&>(*this);
   }
+
+public:
+  uncertain_value(std::string const& name) : name_(name) {}
+
+  std::string const& name() const RETURNS(name_);
 
   value_type constexpr value() const
   {
@@ -1210,79 +1243,11 @@ template <typename T, typename Derived>
 std::ostream&
 operator<<(std::ostream& os, uncertain_value<T, Derived> const& uc)
 RETURNS(
-  os        << uc.value()
+  os        << uc.name()
+     << "," << uc.value()
      << "," << uc.absolute_uncertainty()
      << "," << 100.0 * uc.relative_uncertainty()
 );
-
-///////////////////////////////////////////////////////////////////////////////
-
-template <typename Time, typename SampleSize = int64_t>
-struct experiment_results final
-  : uncertain_value<Time, experiment_results<Time, SampleSize>>
-{
-  using base_type = uncertain_value<Time, experiment_results<Time, SampleSize>>;
-
-  using typename base_type::value_type;
-
-  SampleSize const warmup_size;
-  SampleSize const sample_size;
-  value_type const average_time;   // Arithmetic mean of trial times in seconds.
-  value_type const stdev_time;     // Sample standard deviation of trial times.
-
-  constexpr experiment_results(
-      SampleSize  warmup_size_
-    , SampleSize  sample_size_
-    , value_type  average_time_
-    , value_type  stdev_time_
-    )
-    : warmup_size(MV(warmup_size_))
-    , sample_size(MV(sample_size_))
-    , average_time(MV(average_time_))
-    , stdev_time(MV(stdev_time_))
-  {}
-
-  value_type constexpr value_unrounded() const
-  RETURNS(average_time);
-
-  value_type constexpr absolute_uncertainty_unrounded() const
-  RETURNS(stdev_time);
-
-  value_type constexpr relative_uncertainty_unrounded() const noexcept
-  {
-    return uncertainty_absolute_to_relative(
-      value_unrounded(), absolute_uncertainty_unrounded()
-    );
-  }
-};
-
-template <typename Time, typename SampleSize>
-std::ostream&
-operator<<(std::ostream& os, experiment_results<Time, SampleSize> const& e)
-{
-  os        << e.warmup_size
-     << "," << e.sample_size
-     << "," << static_cast<
-                 typename experiment_results<Time, SampleSize>::base_type const&
-               >(e);
-  return os;
-};
-
-template <typename Time, typename SampleSize>
-auto constexpr make_experiment_results(
-  SampleSize warmup_size
-, SampleSize sample_size
-, Time average_time
-, Time stdev_time
-)
-{
-  return experiment_results<Time, SampleSize>(
-      MV(warmup_size)
-    , MV(sample_size)
-    , MV(average_time)
-    , MV(stdev_time)
-  );
-}
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -1298,10 +1263,16 @@ struct linear_regression_no_intercept final
   value_type const r_squared;
 
   // Precondition: `0 <= r_squared_ && 1 >= r_squared_`.
-  constexpr linear_regression_no_intercept(T slope_, T r_squared_)
-    : slope(MV(slope_))
+  constexpr linear_regression_no_intercept(
+      std::string const& name_, T slope_, T r_squared_
+    )
+    : base_type(name_)
+    , slope(MV(slope_))
     , r_squared(MV(r_squared_))
   {}
+
+  base_type&       base()       noexcept { return *this; }
+  base_type const& base() const noexcept { return *this; }
 
   value_type constexpr value_unrounded() const
   RETURNS(slope);
@@ -1318,8 +1289,12 @@ struct linear_regression_no_intercept final
 };
 
 template <typename T>
-auto constexpr make_linear_regression_no_intercept(T slope, T r_squared)
-RETURNS(linear_regression_no_intercept<T>(MV(slope), MV(r_squared)));
+auto constexpr make_linear_regression_no_intercept(
+  std::string const& name, T slope, T r_squared
+)
+RETURNS(linear_regression_no_intercept<T>(
+  name, MV(slope), MV(r_squared))
+);
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -1334,7 +1309,8 @@ RETURNS(linear_regression_no_intercept<T>(MV(slope), MV(r_squared)));
 ///
 template <typename IndependentValues, typename DependentValues, typename T>
 auto constexpr ordinary_least_squares_estimator_no_intercept(
-  IndependentValues&& x 
+  std::string const&  name
+, IndependentValues&& x 
 , DependentValues&&   y
 , T x_origin
 , T y_origin
@@ -1345,7 +1321,7 @@ auto constexpr ordinary_least_squares_estimator_no_intercept(
   assert(x.size() == y.size());
 
   if (0 == x.size())
-    return make_linear_regression_no_intercept(T{}, T{});
+    return make_linear_regression_no_intercept(name, T{}, T{});
 
   auto const n  = x.size();
 
@@ -1407,7 +1383,7 @@ auto constexpr ordinary_least_squares_estimator_no_intercept(
 
   auto const r_squared = r * r;
 
-  return make_linear_regression_no_intercept(slope, r_squared);
+  return make_linear_regression_no_intercept(name, slope, r_squared);
 }
 
 /// \brief Computes a linear regression of \a y vs \a x with an origin of 
@@ -1421,40 +1397,134 @@ auto constexpr ordinary_least_squares_estimator_no_intercept(
 ///
 template <typename IndependentValues, typename DependentValues>
 auto constexpr ordinary_least_squares_estimator_no_intercept(
-  IndependentValues&& x 
+  std::string const&  name
+, IndependentValues&& x 
 , DependentValues&&   y
 )
 {
   return ordinary_least_squares_estimator_no_intercept(
-    FWD(x), FWD(y), double(0.0), double(0.0)
+    name, FWD(x), FWD(y), double(0.0), double(0.0)
   );
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-template <typename Size, typename Test, typename Setup>
-auto experiment(
-  Size warmup_sample_size
-, Size sample_size
-, Test&& test
-, Setup&& setup
+template <typename T>
+struct experiment_result final
+  : uncertain_value<T, experiment_result<T>>
+{
+  using base_type = uncertain_value<T, experiment_result<T>>;
+
+  using typename base_type::value_type;
+
+  value_type const  average_time; // Arithmetic mean of samples in seconds.
+  value_type const  stdev_time;   // Sample standard deviation of samples.
+  int32_t const     warmups_per_kernel;
+  int32_t const     samples_per_kernel;
+  int32_t const     kernels_per_operation;      // Vertices
+  int32_t const     dependencies_per_operation; // Edges.
+
+  constexpr experiment_result(
+      std::string const& name_
+    , value_type         average_time_
+    , value_type         stdev_time_
+    , int32_t            warmups_per_kernel_
+    , int32_t            samples_per_kernel_
+    , int32_t            kernels_per_operation_
+    , int32_t            dependencies_per_operation_
+    )
+    : base_type(name_)
+    , average_time(MV(average_time_))
+    , stdev_time(MV(stdev_time_))
+    , warmups_per_kernel(MV(warmups_per_kernel_))
+    , samples_per_kernel(MV(samples_per_kernel_))
+    , kernels_per_operation(MV(kernels_per_operation_))
+    , dependencies_per_operation(MV(dependencies_per_operation_))
+  {}
+
+  base_type&       base()       noexcept { return *this; }
+  base_type const& base() const noexcept { return *this; }
+
+  value_type constexpr value_unrounded() const
+  RETURNS(average_time);
+
+  value_type constexpr absolute_uncertainty_unrounded() const
+  RETURNS(stdev_time);
+
+  value_type constexpr relative_uncertainty_unrounded() const noexcept
+  {
+    return uncertainty_absolute_to_relative(
+      value_unrounded(), absolute_uncertainty_unrounded()
+    );
+  }
+};
+
+template <typename T>
+std::ostream& operator<<(std::ostream& os, experiment_result<T> const& e)
+{
+  os        << static_cast<typename experiment_result<T>::base_type const&>(e)
+     << "," << e.warmups_per_kernel
+     << "," << e.samples_per_kernel
+     << "," << e.kernels_per_operation
+     << "," << e.dependencies_per_operation;
+  return os;
+};
+
+template <typename T>
+auto constexpr make_experiment_result(
+  std::string const& name
+, T                  average_time
+, T                  stdev_time
+, int32_t            warmups_per_kernel
+, int32_t            samples_per_kernel
+, int32_t            kernels_per_operation
+, int32_t            dependencies_per_operation
 )
 {
-  // Warmup trials.
-  for (auto w : xrange(warmup_sample_size))
+  return experiment_result<T>(
+      name
+    , MV(average_time)
+    , MV(stdev_time)
+    , MV(warmups_per_kernel)
+    , MV(samples_per_kernel)
+    , MV(kernels_per_operation)
+    , MV(dependencies_per_operation)
+  );
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+template <typename Test, typename Setup>
+auto experiment(
+  std::string const& name
+, int32_t            warmups_per_kernel
+, int32_t            samples_per_kernel
+, int32_t            kernels_per_operation
+, int32_t            dependencies_per_operation
+, Test&&             test
+, Setup&&            setup
+)
+{
+  auto const warmups_per_operation = warmups_per_kernel / kernels_per_operation;
+  auto const samples_per_operation = samples_per_kernel / kernels_per_operation;
+
+  // Warmup samples.
+  // NOTE: We're not using range-based for and `xrange` here due to a GCC ICE.
+  for (int32_t i = 0; i < warmups_per_operation; ++i)
   {
     setup();
     test();
   }
 
   std::vector<double> times;
-  times.reserve(sample_size);
+  times.reserve(samples_per_operation);
 
-  for (auto s : xrange(sample_size))
+  // NOTE: We're not using range-based for and `xrange` here due to a GCC ICE.
+  for (int32_t i = 0; i < samples_per_operation; ++i)
   {
     setup();
 
-    // Record trial.
+    // Record sample.
     auto const start = std::chrono::high_resolution_clock::now();
     test();
     auto const end   = std::chrono::high_resolution_clock::now();
@@ -1469,15 +1539,36 @@ auto experiment(
   double const stdev_time
     = sample_standard_deviation(times.begin(), times.end(), average_time);
 
-  return make_experiment_results(
-    warmup_sample_size, sample_size, average_time, stdev_time
+  return make_experiment_result(
+    name
+  , average_time
+  , stdev_time
+  , warmups_per_kernel
+  , samples_per_kernel
+  , kernels_per_operation
+  , dependencies_per_operation
   );
 }
 
-template <typename Size, typename Test>
-auto experiment(Size warmup_sample_size, Size sample_size, Test&& test)
+template <typename Test>
+auto experiment(
+  std::string const& name
+, int32_t            warmups_per_kernel
+, int32_t            samples_per_kernel
+, int32_t            kernels_per_operation
+, int32_t            dependencies_per_operation
+, Test&&             test
+)
 {
-  return experiment(MV(warmup_sample_size), MV(sample_size), FWD(test), [] {});
+  return experiment(
+    name
+  , MV(warmups_per_kernel)
+  , MV(samples_per_kernel)
+  , MV(kernels_per_operation)
+  , MV(dependencies_per_operation)
+  , FWD(test)
+  , [] {}
+  );
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1525,11 +1616,11 @@ cuda_launch_shape cuda_compute_occupancy(cuda_function& f, int32_t input_size)
 
 ///////////////////////////////////////////////////////////////////////////////
 
-template <typename Size, typename... Args> 
-auto compile_graph_linearly_dependent(
+template <typename... Args> 
+auto graph_compile_linearly_dependent(
   cuda_function&    f
 , cuda_launch_shape shape
-, Size              size
+, int32_t           kernels_per_graph
 , Args&&...         args
 )
 {
@@ -1552,7 +1643,8 @@ auto compile_graph_linearly_dependent(
   CUgraphNode_st* next = nullptr;
   CUgraphNode_st* prev = nullptr;
 
-  for (auto t : xrange(size))
+  // NOTE: We're not using range-based for and `xrange` here due to a GCC ICE.
+  for (int32_t i = 0; i < kernels_per_graph; ++i)
   {
     THROW_ON_CUDA_DRV_ERROR(cuGraphAddKernelNode(
       &next, graph.get(), &prev, prev != nullptr, &desc
@@ -1564,11 +1656,51 @@ auto compile_graph_linearly_dependent(
   return cuda_compiled_graph(graph); 
 }
 
+template <typename... Args> 
+auto graph_compile_independent(
+  cuda_function&    f
+, cuda_launch_shape shape
+, int32_t           kernels_per_graph
+, Args&&...         args
+)
+{
+  cuda_graph graph;
+
+  void* args_ptrs[] = { std::addressof(args)... };
+
+  CUDA_KERNEL_NODE_PARAMS desc;
+  desc.func = f.get();
+  desc.gridDimX = shape.grid_size;
+  desc.gridDimY = 1;
+  desc.gridDimZ = 1;
+  desc.blockDimX = shape.block_size;
+  desc.blockDimY = 1;
+  desc.blockDimZ = 1;
+  desc.sharedMemBytes = 0;
+  desc.kernelParams = args_ptrs;
+  desc.extra = nullptr;
+
+  // NOTE: We're not using range-based for and `xrange` here due to a GCC ICE.
+  for (int32_t i = 0; i < kernels_per_graph; ++i)
+  {
+    CUgraphNode_st* node = nullptr;
+
+    THROW_ON_CUDA_DRV_ERROR(cuGraphAddKernelNode(
+      &node, graph.get(), nullptr, 0, &desc
+    ));
+  }
+
+  return cuda_compiled_graph(graph); 
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 template <typename... Args> 
 void traditional_launch(
-  cuda_function& f, cuda_stream& stream, cuda_launch_shape shape, Args&&... args
+  cuda_stream& stream
+, cuda_function& f
+, cuda_launch_shape shape
+, Args&&... args
 )
 {
   void* args_ptrs[] = { std::addressof(args)... };
@@ -1580,14 +1712,15 @@ void traditional_launch(
   ));
 }
 
-inline void graph_launch(cuda_compiled_graph& cgraph, cuda_stream& stream)
+inline void graph_launch(cuda_stream& stream, cuda_compiled_graph& cgraph)
 {
   THROW_ON_CUDA_DRV_ERROR(cuGraphLaunch(cgraph.get(), stream.get()));
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-std::vector<std::string> split(std::string const& str, std::string const& delim)
+inline std::vector<std::string>
+split(std::string const& str, std::string const& delim)
 {
   // TODO Use `std::string_view` when possible.
   std::vector<std::string> tokens;
@@ -1597,11 +1730,60 @@ std::vector<std::string> split(std::string const& str, std::string const& delim)
     pos = str.find(delim, prev);
     if (pos == std::string::npos) pos = str.length();
     std::string token = str.substr(prev, pos - prev);
-    if (!token.empty()) tokens.push_back(token);
+    if (!token.empty()) tokens.emplace_back(MV(token));
     prev = pos + delim.length();
   }
   while (pos < str.length() && prev < str.length());
   return tokens;
+}
+
+template <typename TransformOperation>
+auto split(
+  std::string const&   str
+, std::string const&   delim
+, TransformOperation&& transform_op
+  )
+{
+  // TODO Use `std::string_view` when possible.
+  using T = decltype(
+    std::declval<TransformOperation>()(std::declval<std::string>())
+  );
+  std::vector<T> tokens;
+  std::string::size_type prev = 0, pos = 0;
+  do
+  {
+    pos = str.find(delim, prev);
+    if (pos == std::string::npos) pos = str.length();
+    std::string token = str.substr(prev, pos - prev);
+    if (!token.empty()) tokens.emplace_back(transform_op(MV(token)));
+    prev = pos + delim.length();
+  }
+  while (pos < str.length() && prev < str.length());
+  return tokens;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+// Returns 0 if the conversion fails.
+template <typename To>
+To from_string(std::string const& str);
+
+template <>
+int from_string<int>(std::string const& str)
+{
+  return std::atoi(str.c_str());
+}
+
+template <>
+long from_string<long>(std::string const& str)
+{
+  return std::atol(str.c_str());
+}
+
+template <>
+long long from_string<long long>(std::string const& str)
+{
+  return std::atoll(str.c_str());
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1672,6 +1854,53 @@ private:
   std::string message;
 };
 
+struct option_value_is_invalid : command_line_option_error
+{
+  // Construct a new `option_value_is_invalid` exception. `key` is the option
+  // name, `value` is the invalid optiona value, and `reason` is an optional
+  // explaination of why the option value is invalid.
+  option_value_is_invalid(
+    std::string const& key
+  , std::string const& value
+  , std::string const& reason = ""
+    )
+    : message()
+  {
+    message  = "`--";
+    message += key;
+    message += "`'s value, `";
+    message += value;
+    message += "`, is invalid";
+    if (!reason.empty()) { message += " "; message += reason; }
+    message += ".";
+  }
+
+  virtual ~option_value_is_invalid() noexcept {}
+
+  virtual const char* what() const noexcept
+  {
+    return message.c_str();
+  }
+
+private:
+  std::string message;
+};
+
+struct negative_integral_option_value_is_invalid : option_value_is_invalid
+{
+  // Construct a new `negative_integral_option_value_is_invalid` exception.
+  // `key` is the option name and `value` is the invalid negative value.
+  template <typename Integral>
+  negative_integral_option_value_is_invalid(std::string const& key, Integral value)
+    : option_value_is_invalid(
+        key, std::to_string(value), "because it is negative"
+      )
+  {
+}
+
+  virtual ~negative_integral_option_value_is_invalid() noexcept {}
+};
+
 struct command_line_processor
 {
   typedef std::vector<std::string> positional_options_type;
@@ -1685,7 +1914,7 @@ struct command_line_processor
 
   command_line_processor(int argc, char** argv)
     : pos_args(), kw_args()
-  { // {{{
+  { 
     for (int i = 1; i < argc; ++i)
     {
       std::string arg(argv[i]);
@@ -1711,7 +1940,7 @@ struct command_line_processor
       else // Assume it's positional.
         pos_args.push_back(arg);
     }
-  } // }}}
+  }
 
   // Return the value for option `key`.
   //
@@ -1750,6 +1979,29 @@ struct command_line_processor
       return (*v.first).second;
   }
 
+  // Return `convert(key)` if there is one key, or `dflt()` if `key` has no value.
+  //
+  // Throws: `only_one_option_allowed` if there is more than one value for `key`.
+  template <typename ConversionFunction, typename DefaultFunction>
+  auto operator()(
+    std::string const&   key
+  , ConversionFunction&& convert_f
+  , DefaultFunction&&    default_f
+  ) const
+  {
+    keyword_option_values v = kw_args.equal_range(key);
+
+    keyword_options_type::difference_type d = std::distance(v.first, v.second);
+
+    if (1 < d)  // Too many options.
+      throw only_one_option_allowed(key, v.first, v.second);
+
+    if (0 == d) // No option.
+      return default_f();
+    else        // 1 option.
+      return convert_f((*v.first).second);
+  }
+
   // Returns `true` if the option `key` was specified at least once.
   bool has(std::string const& key) const
   {
@@ -1761,15 +2013,414 @@ private:
   keyword_options_type    kw_args;
 };
 
+template <typename Integral>
+Integral constexpr get_positive_integral_option(
+  command_line_processor const& clp
+, std::string const& key
+, Integral dflt
+, std::enable_if_t<
+    std::is_integral_v<
+      std::remove_cv_t<std::remove_reference_t<Integral>>
+    >
+  >* = nullptr
+)
+{
+  using T = std::remove_cv_t<std::remove_reference_t<Integral>>;
+
+  auto const convert_f = [] (std::string const& value)
+                         { return from_string<T>(value); };
+  auto const default_f = [=] { return dflt; };
+
+  T const value = clp(key, convert_f, default_f);
+
+  if (0 > value)
+    throw negative_integral_option_value_is_invalid(key, value);
+
+  return value;
+}
+
+template <typename DefaultFunction>
+auto constexpr get_positive_integral_option(
+  command_line_processor const& clp
+, std::string const& key
+, DefaultFunction&& default_f
+, std::enable_if_t<
+    !std::is_integral_v<
+      std::remove_cv_t<std::remove_reference_t<DefaultFunction>>
+    >
+  >* = nullptr
+)
+{
+  using T = decltype(std::declval<DefaultFunction>()());
+
+  auto const convert_f = [] (std::string const& value)
+                         { return from_string<T>(value); };
+
+  T const value = clp(key, convert_f, FWD(default_f));
+
+  if (0 > value)
+    throw negative_integral_option_value_is_invalid(key, value);
+
+  return value;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
-int main()
+enum output_types
 {
-  cuInit(0);
-  
-  cuda_context context;
+  invalid_output_type
+, pretty_models
+, csv_models
+, csv_data 
+};
 
-  cuda_module module("kernels.cubin");
+inline std::ostream&
+operator<<(std::ostream& os, output_types ot)
+{
+  if      (invalid_output_type == ot) return os << "invalid_output_type";
+  else if (pretty_models       == ot) return os << "pretty_models";
+  else if (csv_models          == ot) return os << "csv_models";
+  else if (csv_data            == ot) return os << "csv_data";
+  else                                return os << "unknown_output_type";
+}
+
+int main(int argc, char** argv)
+{
+  int32_t constexpr default_device = 0;
+
+  constexpr char const* default_cubin_path = "./build/TT/";
+
+  output_types constexpr default_output_type = pretty_models;
+
+  int32_t constexpr default_graph_compile_samples_per_kernel                 = 131072;
+  int32_t constexpr default_graph_compile_warmups_per_kernel_divisor         = 4;
+
+  int32_t constexpr default_graph_launch_samples_per_kernel_multiplier       = 2;
+  int32_t constexpr default_graph_launch_warmups_per_kernel_divisor          = 4;
+
+  int32_t constexpr default_traditional_launch_samples_per_kernel_multiplier = 8;
+  int32_t constexpr default_traditional_launch_warmups_per_kernel_divisor    = 4;
+
+  auto constexpr default_graph_sizes = make_index_array<int32_t>(
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
+  , 32,   48,   64,   80,   96,   112,  128 
+  , 256,  384,  512,  640,  768,  896,  1024
+  , 2048, 3072, 4096, 5120, 6144, 7168, 8192
+  );
+
+  command_line_processor clp(argc, argv);
+
+  if (clp.has("help"))
+  {
+    using std::endl;
+
+    std::cout
+    << argv[0] << " - CUDA Graphs Launch Latency Benchmark"            << endl
+                                                                       << endl
+    << "--help"                                                        << endl
+    << "    Prints this information."                                  << endl
+    << "--debug-command-line-processing"                               << endl
+    << "    Debug command line processing."                            << endl
+    << "--device=INTEGRAL"                                             << endl
+    << "    Run experiments on the CUDA device with the specified"     << endl
+    << "    device ordinal."                                           << endl
+    << "    Default: \"" << default_device << "\"."                    << endl
+    << "--device=STRING"                                               << endl
+    << "    The location of the benchmark's cubin. If the cubin is"    << endl
+    << "    not found there, the current directory is searched."       << endl
+    << "    Default: \"" << default_cubin_path << "\"."                << endl
+    << "--no-header"                                                   << endl
+    << "    Do not print CSV headers."                                 << endl
+    << "--output-type=STRING"                                          << endl
+    << "    What type of output should be produced. The options are:"  << endl
+    << "    * \"pretty_models\" - Human-readable linear models."       << endl
+    << "    * \"csv_models\" - CSV-format linear models."              << endl
+    << "    * \"csv_data\" - CSV-format raw data."                     << endl
+    << "    Default: \"" << default_output_type << "\"."               << endl
+                                                                       << endl
+    << "--graph-compile-samples-per-kernel=INTEGRAL"                   << endl
+    << "    The number of samples per kernel for graph compilation"    << endl
+    << "    experiments."                                              << endl
+    << "    Default:"
+       << default_graph_compile_samples_per_kernel << "."              << endl
+    << "--graph-compile-warmups-per-kernel=INTEGRAL"                   << endl
+    << "    The number of warmup samples per kernel to perform "       << endl
+    << "    before graph compilation experiments."                     << endl
+    << "    Default: `--graph-compile-samples-per-kernel / "
+       << default_graph_compile_warmups_per_kernel_divisor << "`."     << endl
+    << "--graph-launch-samples-per-kernel=INTEGRAL"                    << endl
+    << "    The number of samples per kernel for graph launch"         << endl
+    << "    experiments."                                              << endl
+    << "    Default: `--graph-compile-samples-per-kernel * "
+       << default_graph_launch_samples_per_kernel_multiplier << "`."   << endl
+    << "--graph-launch-warmups-per-kernel=INTEGRAL"                    << endl
+    << "    The number of warmup samples per kernel to perform "       << endl
+    << "    before graph launch experiments."                          << endl
+    << "    Default: `--graph-launch-samples-per-kernel / "
+       << default_graph_launch_warmups_per_kernel_divisor << "`."      << endl
+    << "--traditional-launch-samples-per-kernel=INTEGRAL"              << endl
+    << "    The number of samples per kernel for traditional launch"   << endl
+    << "    experiments."                                              << endl
+    << "    Default: `--graph-launch-samples-per-kernel * "
+       << default_traditional_launch_samples_per_kernel_multiplier
+       << "`."                                                         << endl
+    << "--traditional-launch-warmups-per-kernel=INTEGRAL"              << endl
+    << "    The number of warmup samples per kernel to perform "       << endl
+    << "    before traditional launch experiments."                    << endl
+    << "    Default: `--traditional-launch-samples-per-kernel / "
+       << default_traditional_launch_warmups_per_kernel_divisor
+       << "`."                                                         << endl
+    << "--graph-sizes=LIST-OF-INTEGRALS"                               << endl
+    << "    A comma separated list of different graph sizes (kernels"  << endl
+    << "    per graph) to run experiments on."                         << endl
+    << "    Default: " << default_graph_sizes << "."                   << endl
+                                                                       << endl
+    << "The number of warmup and regular samples must be larger than"  << endl
+    << "the largest graph size. It is recommended they be "            << endl
+    << "substantially larger."                                         << endl
+    ;
+
+    return 1;
+  }
+
+  // The order in which command line options are processed matters because some
+  // have defaults that depend on other options.
+
+  bool const debug_command_line_processing
+    = clp.has("debug-command-line-processing");
+
+  int32_t const device = get_positive_integral_option(
+    clp, "device", default_device
+  );
+
+  std::string const cubin_path = clp("device", default_cubin_path);
+
+  bool const header = !clp.has("no-header");
+
+  output_types const output_type = clp(
+    "output-type"
+  , [] (std::string const& value)
+    {
+      if      ("pretty_models" == value)
+        return pretty_models;
+      else if ("csv_models" == value)
+        return csv_models;
+      else if ("csv_data" == value)
+        return csv_data;
+
+      throw option_value_is_invalid(
+        "output-type", value
+      , "- valid values are \"pretty_models\", \"csv_models\", or \"csv_data\""
+      );
+      return invalid_output_type;
+    }
+  , [] { return pretty_models; }
+  );
+
+  int32_t const graph_compile_samples_per_kernel
+    = get_positive_integral_option(
+      clp, "graph-compile-samples-per-kernel"
+    , default_graph_compile_samples_per_kernel
+    );
+
+  int32_t const graph_compile_warmups_per_kernel
+    = get_positive_integral_option(
+      clp, "graph-compile-warmups-per-kernel"
+    , [&] {
+        return graph_compile_samples_per_kernel
+             / default_graph_compile_warmups_per_kernel_divisor;
+      }
+    );
+
+  int32_t const graph_launch_samples_per_kernel
+    = get_positive_integral_option(
+      clp, "graph-launch-samples-per-kernel"
+    , [&] {
+        return graph_compile_samples_per_kernel
+             * default_graph_launch_samples_per_kernel_multiplier;
+      }
+    );
+
+  int32_t const graph_launch_warmups_per_kernel
+    = get_positive_integral_option(
+      clp, "graph-launch-warmups-per-kernel"
+    , [&] {
+        return graph_launch_samples_per_kernel
+             / default_graph_launch_warmups_per_kernel_divisor;
+      }
+    );
+
+  int32_t const traditional_launch_samples_per_kernel
+    = get_positive_integral_option(
+      clp, "traditional-launch-samples-per-kernel"
+    , [&] {
+        return graph_launch_samples_per_kernel
+             * default_traditional_launch_samples_per_kernel_multiplier;
+      }
+    );
+
+  int32_t const traditional_launch_warmups_per_kernel
+    = get_positive_integral_option(
+      clp, "traditional-launch-warmups-per-kernel"
+    , [&] {
+        return traditional_launch_samples_per_kernel
+             / default_traditional_launch_warmups_per_kernel_divisor;
+      }
+    );
+
+  std::vector<int32_t> const graph_sizes = clp(
+    "graph-sizes"
+  , [&] (std::string const& value)
+    {
+      return split(
+        value, ","
+      , [&] (std::string&& str)
+        {
+          int32_t const result = from_string<int32_t>(str);
+
+          // TODO: This is very similar to the positive option error handling,
+          // that should be generalized.
+          if (1 > result)
+            throw option_value_is_invalid(
+              "graph-sizes", str
+            , "because it must be greater than 1"
+            );
+
+          auto const validate_sizes
+            = [&] (
+                char const* name
+              , int32_t warmups_per_kernel
+              , int32_t samples_per_kernel
+              ) {
+                // Unchecked division is fine here, we validated the
+                // denominator above.
+                auto const warmups_per_operation = warmups_per_kernel / result;
+                auto const samples_per_operation = samples_per_kernel / result;
+
+                if (1 >= warmups_per_operation)
+                  throw option_value_is_invalid(
+                    "graph-sizes", str
+                  , std::string("because the `--")
+                  + name
+                  + "-warmups-per-kernel` option value is too small - "
+                  + "this graph size would only have a single warmup"
+                  );
+
+                if (1 >= samples_per_operation)
+                  throw option_value_is_invalid(
+                    "graph-sizes", str
+                  , std::string("because the `--")
+                  + name
+                  + "-samples-per-kernel` option value is too small - "
+                  + "this graph size would only have a single sample"
+                  );
+              };
+
+          validate_sizes(
+            "traditional-launch"
+          , traditional_launch_warmups_per_kernel
+          , traditional_launch_samples_per_kernel
+          );
+
+          validate_sizes(
+            "graph-compile"
+          , graph_compile_warmups_per_kernel
+          , graph_compile_samples_per_kernel
+          );
+
+          validate_sizes(
+            "graph-launch"
+          , graph_launch_warmups_per_kernel
+          , graph_launch_samples_per_kernel
+          );
+
+          return result;
+        }
+      );
+    }
+  , [&] {
+      return std::vector<int32_t>(
+        default_graph_sizes.begin(), default_graph_sizes.end()
+      );
+    }
+  );
+
+  if (debug_command_line_processing)
+  {
+    using std::endl;
+
+    std::cout
+    << "debug_command_line_processing         == "
+      << debug_command_line_processing         << endl
+    << "device                                == "
+      << device                                << endl
+    << "header                                == "
+      << header                                << endl
+    << "output_type                           == "
+      << output_type                           << endl
+    << "graph_compile_samples_per_kernel      == "
+      << graph_compile_samples_per_kernel      << endl
+    << "graph_compile_warmups_per_kernel      == "
+      << graph_compile_warmups_per_kernel      << endl
+    << "graph_launch_samples_per_kernel       == "
+      << graph_launch_samples_per_kernel       << endl
+    << "graph_launch_warmups_per_kernel       == "
+      << graph_launch_warmups_per_kernel       << endl
+    << "traditional_launch_samples_per_kernel == "
+      << traditional_launch_samples_per_kernel << endl
+    << "traditional_launch_warmups_per_kernel == "
+      << traditional_launch_warmups_per_kernel << endl
+    << "graph_sizes                           == "
+      << graph_sizes                           << endl
+    ;
+  }
+
+  if (csv_data == output_type && header)
+  {
+    // Print CSV header first row (variable names)
+    std::cout << "Test"
+       << "," << "Average Execution Time"
+       << "," << "Execution Time Absolute Uncertainty"
+       << "," << "Execution Time Relative Uncertainty"
+       << "," << "Warmups per Kernel" 
+       << "," << "Samples per Kernel"
+       << "," << "Kernels per Operation"
+       << "," << "Dependencies per Operation"
+       << std::endl;
+
+    // Print CSV header second row (variable units)
+    std::cout << ""
+       << "," << "seconds"
+       << "," << "seconds"
+       << "," << "%"
+       << "," << "samples/kernel"
+       << "," << "samples/kernel"
+       << "," << "kernels/operation"
+       << "," << "dependencies/operation"
+       << std::endl;
+  }
+
+  /////////////////////////////////////////////////////////////////////////////
+
+  cuInit(0);
+
+  cuda_context context(device);
+
+  cuda_module module;
+
+  try
+  {
+    module = cuda_module(cubin_path + "kernels.cubin");
+  }
+  catch (cuda_drv_exception& e) 
+  {
+    if (CUDA_ERROR_FILE_NOT_FOUND != e.code())
+      // Some other problem occurred, rethrow to report it.
+      throw;
+
+    // Try to load from the current directory.
+    module = cuda_module("kernels.cubin");
+  }
 
   cuda_function     hello_world(module, "hello_world_kernel");
   cuda_launch_shape hello_world_shape(cuda_compute_occupancy(hello_world));
@@ -1783,126 +2434,153 @@ int main()
   cuda_function     payload(module, "payload_kernel");
   cuda_launch_shape payload_shape(cuda_compute_occupancy(payload));
 
-  // Print CSV header first row (variable names)
-  std::cout << "Test"
-     << "," << "Kernels per Graph"
-     << "," << "Dependencies per Graph"
-     << "," << "Warmup Sample Size" 
-     << "," << "Sample Size"
-     << "," << "Average Execution Time"
-     << "," << "Execution Time Absolute Uncertainty"
-     << "," << "Execution Time Relative Uncertainty"
-     << std::endl;
+  /////////////////////////////////////////////////////////////////////////////
 
-  // Print CSV header second row (variable units)
-  std::cout << ""
-     << "," << "vertices"
-     << "," << "edges"
-     << "," << "samples"
-     << "," << "samples"
-     << "," << "seconds"
-     << "," << "seconds"
-     << "," << "%"
-     << std::endl;
+  auto const data_reporterer
+    = [&] (auto&& result)
+      {
+        if (csv_data == output_type)
+          std::cout << result << std::endl;
+      };
 
-  auto traditional_result = [&] {
-    cuda_stream stream;
+  auto const linear_regression_reporter
+    = [&] (auto&& model)
+      {
+        if (csv_models == output_type)
+          std::cout << model.base() << std::endl;
+        else if (pretty_models == output_type)
+          std::cout << model.name()
+                    << ": "
+                    << model.value()
+                    << " seconds (linear regression model, "
+                    << 100.0 * (1.0 - model.relative_uncertainty())
+                    << " % match) " 
+                    << "host-thread latency per kernel."
+                    << std::endl;
+      };
 
-    auto result = experiment(
-      128, 4096, [&] { traditional_launch(noop, stream, noop_shape); }
-    );
+  auto const arithmetic_mean_reporter
+    = [&] (auto&& model)
+      {
+        if      (csv_data == output_type)
+          std::cout << model << std::endl;
+        else if (csv_models == output_type)
+          std::cout << model.base() << std::endl;
+        else if (pretty_models == output_type)
+          std::cout << model.name()
+                    << ": "
+                    << model.value()
+                    << " seconds +/- "
+                    << 100.0 * model.relative_uncertainty()
+                    << " % host-thread latency per kernel."
+                    << std::endl;
+      };
 
-    std::cout << "traditional_launch_linearly_dependent"
-       << "," << 1
-       << "," << 1
-       << "," << result
-       << std::endl;
+  auto const inline_harness
+    = [&] (auto&& f, auto&& reporter)
+      {
+        auto const result = FWD(f)();
+        FWD(reporter)(result);
+        return result;
+      };
 
-    stream.wait();
+  auto const cuda_stream_harness
+    = [&] (auto&& f, auto&& reporter)
+      {
+        cuda_stream stream;
+        auto const result = FWD(f)(stream);
+        FWD(reporter)(result);
+        stream.wait();
+        return result;
+      };
 
-    return result;
-  }();
-
-  {
-    auto constexpr sizes = make_index_array(
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
-    , 32,   48,   64,   80,   96,   112,  128 
-    , 256,  384,  512,  640,  768,  896,  1024
-    , 2048, 3072, 4096, 5120, 6144, 7168, 8192
-    );
-
-    std::vector<decltype(traditional_result)> compile_results;
-    compile_results.reserve(sizes.size());
-
-    std::vector<decltype(traditional_result)> launch_results;
-    launch_results.reserve(sizes.size());
-
-    for (auto size : sizes)
+  auto const linear_regression_harness
+    = [&] (auto&& f, auto&& reporter)
     {
-      cuda_compiled_graph cg;
+      std::vector<experiment_result<double>> results;
+      results.reserve(graph_sizes.size());
 
-      compile_results.emplace_back(experiment(
-        32, 256
-      , [&] { cg = MV(compile_graph_linearly_dependent(noop, noop_shape, size)); }
-      , [&] { cg.reset(); }
-      ));
+      for (auto kernels_per_graph : graph_sizes)
+        results.emplace_back(FWD(f)(kernels_per_graph));
 
-      std::cout << "graph_compile_linearly_dependent"
-         << "," << size
-         << "," << (size - 1)
-         << "," << compile_results.back()
-         << std::endl;
+      auto const model = ordinary_least_squares_estimator_no_intercept(
+        results.front().name()
+      , graph_sizes, results
+      );
+
+      FWD(reporter)(model);
+
+      return model;
+    };
+
+  /////////////////////////////////////////////////////////////////////////////
+
+  auto traditional_launch_linearly_dependent_model = cuda_stream_harness(
+    [&] (cuda_stream& stream) {
+      return experiment(
+        "traditional_launch_linearly_dependent"
+      , traditional_launch_warmups_per_kernel
+      , traditional_launch_samples_per_kernel
+      , 1 // Kernels per operation.
+      , 1 // Dependencies per operation.
+      , [&] { traditional_launch(stream, noop, noop_shape); }
+      );
     }
+  , arithmetic_mean_reporter
+  );
 
-    for (auto size : sizes)
+  auto graph_compile_linearly_dependent_model = linear_regression_harness(
+    [&] (int32_t kernels_per_graph)
     {
-      cuda_stream stream;
+      return inline_harness(
+        [&] {
+          cuda_compiled_graph cg;
 
-      auto cg = compile_graph_linearly_dependent(noop, noop_shape, size);
-
-      launch_results.emplace_back(experiment(
-        32, 256, [&] { graph_launch(cg, stream); }
-      ));
-
-      std::cout << "graph_launch_linearly_dependent"
-         << "," << size
-         << "," << (size - 1)
-         << "," << launch_results.back()
-         << std::endl;
-
-      stream.wait();
+          return experiment(
+            "graph_compile_linearly_dependent"
+          , graph_compile_warmups_per_kernel
+          , graph_compile_samples_per_kernel
+          , kernels_per_graph       // Kernels per operation.
+          , (kernels_per_graph - 1) // Dependencies per operation.
+          , [&] {
+              cg = MV(graph_compile_linearly_dependent(
+                noop, noop_shape, kernels_per_graph
+              ));
+            }
+            // We don't want to measure the cost of destroying the previous
+            // samples' graph, so we clean it up in the setup hook.
+          , [&] { cg.reset(); }
+          );
+        }
+      , data_reporterer
+      );
     }
+  , linear_regression_reporter
+  );
 
-    std::cout << std::endl;
+  auto graph_launch_linearly_dependent_model = linear_regression_harness(
+    [&] (int32_t kernels_per_graph)
+    {
+      return cuda_stream_harness(
+        [&] (cuda_stream& stream) {
+          auto cg = graph_compile_linearly_dependent(
+            noop, noop_shape, kernels_per_graph
+          );
 
-    auto const compile_model
-      = ordinary_least_squares_estimator_no_intercept(
-          sizes, compile_results
-        );
-
-    auto const launch_model
-      = ordinary_least_squares_estimator_no_intercept(
-          sizes, launch_results
-        );
-
-    std::cout << "traditional_launch_linearly_dependent"
-       << "," << traditional_result.value_unrounded()
-       << "," << traditional_result.absolute_uncertainty_unrounded() 
-       << "," << traditional_result.relative_uncertainty_unrounded()
-       << std::endl;
-
-    std::cout << "graph_compile_linearly_dependent"
-       << "," << compile_model.value_unrounded()
-       << "," << compile_model.absolute_uncertainty_unrounded() 
-       << "," << compile_model.relative_uncertainty_unrounded()
-       << std::endl;
-
-    std::cout << "graph_launch_linearly_dependent"
-       << "," << launch_model.value_unrounded()
-       << "," << launch_model.absolute_uncertainty_unrounded() 
-       << "," << launch_model.relative_uncertainty_unrounded()
-       << std::endl;
-  }
+          return experiment(
+            "graph_launch_linearly_dependent"
+          , graph_launch_warmups_per_kernel
+          , graph_launch_samples_per_kernel
+          , kernels_per_graph       // Kernels per operation.
+          , (kernels_per_graph - 1) // Dependencies per operation.
+          , [&] { graph_launch(stream, cg); }
+          );
+        }
+      , data_reporterer
+      );
+    }
+  , linear_regression_reporter
+  );
 
   THROW_ON_CUDA_DRV_ERROR(cuCtxSynchronize());
 }

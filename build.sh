@@ -16,9 +16,9 @@ CUDATT_FLAGS="-I ${CUDATT_ROOT}/sw/gpgpu/thrust"
 #CUDA10_NVCC=${CUDA10_ROOT}/bin/nvcc
 #CUDA10_FLAGS=""
 
-NVCC_CU_FLAGS="--std=c++14 -cubin -gencode arch=compute_61,code=sm_61"
+NVCC_CU_FLAGS="-g --std=c++14 -cubin -gencode arch=compute_61,code=sm_61"
 
-NVCC_CPP_FLAGS="-ccbin g++-8 -Xcompiler -std=c++17 -Xcompiler -O3 -Xcompiler -msse -Xcompiler -fno-strict-aliasing -Xcompiler -frerun-loop-opt -Xcompiler -funroll-all-loops -lcuda"
+NVCC_CPP_FLAGS="-g -ccbin g++-8 -Xcompiler -std=c++17 -Xcompiler -O3 -Xcompiler -msse -Xcompiler -fno-strict-aliasing -Xcompiler -frerun-loop-opt -Xcompiler -funroll-all-loops -lcuda"
 
 mkdir -p ${BUILD_DIR}/TT
 
