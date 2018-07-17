@@ -428,7 +428,9 @@ private:
   std::unique_ptr<CUctx_st, cuda_context_deleter> ptr_;
 
 public:
-  cuda_context(int32_t device_ordinal = 0)
+  cuda_context() = default;
+
+  cuda_context(int32_t device_ordinal)
   {
     CUdevice device;
     THROW_ON_CUDA_DRV_ERROR(cuDeviceGet(&device, device_ordinal));
@@ -442,9 +444,14 @@ public:
   cuda_context(cuda_context const&)     = delete;
   cuda_context(cuda_context&&) noexcept = default;
 
+  cuda_context& operator=(cuda_context const&)     = delete;
+  cuda_context& operator=(cuda_context&&) noexcept = default;
+
   CUctx_st& operator*()  const RETURNS(*ptr_.get());
   CUctx_st* operator->() const RETURNS(ptr_.get());
   CUctx_st* get()        const RETURNS(ptr_.get());
+
+  void reset() { ptr_.reset(); }
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -482,6 +489,8 @@ public:
   CUmod_st& operator*()  const RETURNS(*ptr_.get());
   CUmod_st* operator->() const RETURNS(ptr_.get());
   CUmod_st* get()        const RETURNS(ptr_.get());
+
+  void reset() { ptr_.reset(); }
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -497,6 +506,8 @@ private:
   std::unique_ptr<CUfunc_st, cuda_function_deleter> ptr_;
 
 public:
+  cuda_function() = default;
+
   cuda_function(cuda_module& module, char const* function_name)
   {
     CUfunc_st* function;
@@ -509,6 +520,9 @@ public:
 
   cuda_function(cuda_function const&)     = delete;
   cuda_function(cuda_function&&) noexcept = default;
+
+  cuda_function& operator=(cuda_function const&)     = delete;
+  cuda_function& operator=(cuda_function&&) noexcept = default;
 
   CUfunc_st& operator*()  const RETURNS(*ptr_.get());
   CUfunc_st* operator->() const RETURNS(ptr_.get());
@@ -547,9 +561,37 @@ public:
   CUstream_st* operator->() const RETURNS(ptr_.get());
   CUstream_st* get()        const RETURNS(ptr_.get());
 
+  void release() { ptr_.release(); }
+
+  void wait() { THROW_ON_CUDA_DRV_ERROR(cuStreamSynchronize(get())); }
+};
+
+struct cuda_stream_pool final
+{
+private:
+  std::vector<cuda_stream> streams_;
+  int32_t mutable next_;
+
+public:
+  cuda_stream_pool(int32_t streams = 64) : streams_(streams), next_(0) {}
+
+  cuda_stream_pool(cuda_stream_pool const&)     = delete;
+  cuda_stream_pool(cuda_stream_pool&&) noexcept = default;
+
+  CUstream_st* get() const
+  {
+    if (streams_.size() >= next_)
+      next_ = 0;
+    return streams_[++next_].get();
+  }
+
+  CUstream_st& operator*()  const { return *get(); }
+  CUstream_st* operator->() const { return get(); }
+
   void wait()
   {
-    THROW_ON_CUDA_DRV_ERROR(cuStreamSynchronize(get()));
+    for (auto&& stream : streams_)
+      THROW_ON_CUDA_DRV_ERROR(cuStreamSynchronize(stream.get()));
   }
 };
 
@@ -1575,8 +1617,12 @@ auto experiment(
 
 struct cuda_launch_shape final
 {
-  int32_t const grid_size;  // Blocks per grid.
-  int32_t const block_size; // Threads per block.
+  int32_t grid_size;  // Blocks per grid.
+  int32_t block_size; // Threads per block.
+
+  constexpr cuda_launch_shape()
+    : grid_size{}, block_size{}
+  {}
 
   constexpr cuda_launch_shape(int32_t grid_size_, int32_t block_size_)
     : grid_size(grid_size_), block_size(block_size_)
@@ -1695,9 +1741,9 @@ auto graph_compile_independent(
 
 ///////////////////////////////////////////////////////////////////////////////
 
-template <typename... Args> 
+template <typename Streamish, typename... Args> 
 void traditional_launch(
-  cuda_stream& stream
+  Streamish& streamish
 , cuda_function& f
 , cuda_launch_shape shape
 , Args&&... args
@@ -1708,7 +1754,7 @@ void traditional_launch(
     f.get()
   , shape.grid_size,  1, 1
   , shape.block_size, 1, 1
-  , 0, stream.get(), args_ptrs, 0
+  , 0, streamish.get(), args_ptrs, 0
   ));
 }
 
@@ -2404,39 +2450,62 @@ int main(int argc, char** argv)
 
   cuInit(0);
 
-  cuda_context context(device);
+  cuda_context      context;
+  cuda_module       module;
+  cuda_function     hello_world;
+  cuda_launch_shape hello_world_shape;
+  cuda_function     noop;
+  cuda_launch_shape noop_shape;
+  cuda_function     hang;
+  cuda_launch_shape hang_shape;
+  cuda_function     payload;
+  cuda_launch_shape payload_shape;
+  
+  auto const device_reset
+    = [&] {
+        // First, we need to unload the module.
+        module.reset();
 
-  cuda_module module;
+        // Then, we need to destroy the context.
+        context.reset();
 
-  try
-  {
-    module = cuda_module(cubin_path + "kernels.cubin");
-  }
-  catch (cuda_drv_exception& e) 
-  {
-    if (CUDA_ERROR_FILE_NOT_FOUND != e.code())
-      // Some other problem occurred, rethrow to report it.
-      throw;
+        // Then, we make a new context.
+        context = cuda_context(device);
 
-    // Try to load from the current directory.
-    module = cuda_module("kernels.cubin");
-  }
+        // Load the module. 
+        try
+        {
+          module = cuda_module(cubin_path + "kernels.cubin");
+        }
+        catch (cuda_drv_exception& e) 
+        {
+          if (CUDA_ERROR_FILE_NOT_FOUND != e.code())
+            // Some other problem occurred, rethrow to report it.
+            throw;
 
-  cuda_function     hello_world(module, "hello_world_kernel");
-  cuda_launch_shape hello_world_shape(cuda_compute_occupancy(hello_world));
+          // Try to load from the current directory.
+          module = cuda_module("kernels.cubin");
+        }
 
-  cuda_function     noop(module, "noop_kernel");
-  cuda_launch_shape noop_shape(cuda_compute_occupancy(noop));
+        // Load our kernels.
+        hello_world = cuda_function(module, "hello_world_kernel");
+        hello_world_shape = cuda_compute_occupancy(hello_world);
 
-  cuda_function     hang(module, "hang_kernel");
-  cuda_launch_shape hang_shape(cuda_compute_occupancy(hang));
+        noop = cuda_function(module, "noop_kernel");
+        noop_shape = cuda_compute_occupancy(noop);
 
-  cuda_function     payload(module, "payload_kernel");
-  cuda_launch_shape payload_shape(cuda_compute_occupancy(payload));
+        hang = cuda_function(module, "hang_kernel");
+        hang_shape = cuda_compute_occupancy(hang);
+
+        payload = cuda_function(module, "payload_kernel");
+        payload_shape = cuda_compute_occupancy(payload);
+      };
+
+  device_reset();
 
   /////////////////////////////////////////////////////////////////////////////
 
-  auto const data_reporterer
+  auto const data_reporter
     = [&] (auto&& result)
       {
         if (csv_data == output_type)
@@ -2491,6 +2560,16 @@ int main(int argc, char** argv)
         auto const result = FWD(f)(stream);
         FWD(reporter)(result);
         stream.wait();
+        return result;
+      };
+
+  auto const cuda_stream_pool_harness
+    = [&] (auto&& f, auto&& reporter, int32_t streams)
+      {
+        cuda_stream_pool pool(streams);
+        auto const result = FWD(f)(pool);
+        FWD(reporter)(result);
+        pool.wait();
         return result;
       };
 
@@ -2552,7 +2631,7 @@ int main(int argc, char** argv)
           , [&] { cg.reset(); }
           );
         }
-      , data_reporterer
+      , data_reporter
       );
     }
   , linear_regression_reporter
@@ -2576,7 +2655,75 @@ int main(int argc, char** argv)
           , [&] { graph_launch(stream, cg); }
           );
         }
-      , data_reporterer
+      , data_reporter
+      );
+    }
+  , linear_regression_reporter
+  );
+
+  auto traditional_launch_independent_model = cuda_stream_pool_harness(
+    [&] (cuda_stream_pool& pool) {
+      return experiment(
+        "traditional_launch_independent"
+      , traditional_launch_warmups_per_kernel
+      , traditional_launch_samples_per_kernel
+      , 1 // Kernels per operation.
+      , 1 // Dependencies per operation.
+      , [&] { traditional_launch(pool, noop, noop_shape); }
+      );
+    }
+  , arithmetic_mean_reporter
+  , 64 // Streams in pool.
+  );
+
+  auto graph_compile_independent_model = linear_regression_harness(
+    [&] (int32_t kernels_per_graph)
+    {
+      return inline_harness(
+        [&] {
+          cuda_compiled_graph cg;
+
+          return experiment(
+            "graph_compile_independent"
+          , graph_compile_warmups_per_kernel
+          , graph_compile_samples_per_kernel
+          , kernels_per_graph       // Kernels per operation.
+          , (kernels_per_graph - 1) // Dependencies per operation.
+          , [&] {
+              cg = MV(graph_compile_independent(
+                noop, noop_shape, kernels_per_graph
+              ));
+            }
+            // We don't want to measure the cost of destroying the previous
+            // samples' graph, so we clean it up in the setup hook.
+          , [&] { cg.reset(); }
+          );
+        }
+      , data_reporter
+      );
+    }
+  , linear_regression_reporter
+  );
+
+  auto graph_launch_independent_model = linear_regression_harness(
+    [&] (int32_t kernels_per_graph)
+    {
+      return cuda_stream_harness(
+        [&] (cuda_stream& stream) {
+          auto cg = graph_compile_independent(
+            noop, noop_shape, kernels_per_graph
+          );
+
+          return experiment(
+            "graph_launch_independent"
+          , graph_launch_warmups_per_kernel
+          , graph_launch_samples_per_kernel
+          , kernels_per_graph       // Kernels per operation.
+          , (kernels_per_graph - 1) // Dependencies per operation.
+          , [&] { graph_launch(stream, cg); }
+          );
+        }
+      , data_reporter
       );
     }
   , linear_regression_reporter
