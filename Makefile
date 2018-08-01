@@ -5,8 +5,8 @@
 # Distributed under the Boost Software License v1.0 (boost.org/LICENSE_1_0.txt)
 ###############################################################################
 
-# Target device architecture (list of `[0-9][0-9]`s or `all`).
-DEVICE_ARCHS    ?= all
+# Target device architecture (`[0-9][0-9]` or `all`).
+DEVICE_ARCH     ?= all
 # Class of build (`debug` or `release`).
 BUILD_TYPE      ?= release
 # The build directory to create and use.
@@ -36,7 +36,7 @@ DEVICE_CUDA_CXX_FLAGS ?=
 $(info ###############################################################################)
 $(info # Settings)
 $(info ###############################################################################)
-$(info # DEVICE_ARCHS                 : `$(value DEVICE_ARCHS)`)
+$(info # DEVICE_ARCH                  : `$(value DEVICE_ARCH)`)
 $(info # BUILD_TYPE                   : `$(value BUILD_TYPE)`)
 $(info # BUILD_DIRECTORY              : `$(value BUILD_DIRECTORY)`)
 $(info # CXX_VERSION                  : `$(value CXX_VERSION)`)
@@ -58,9 +58,10 @@ $(info ) # Print blank newline.
 
 # Tell the host/device CUDA C++ compiler which device architectures to generate
 # code for when compiling device CUDA C++.
-ifneq ($(DEVICE_ARCHS),all)
-	GENCODE = -gencode arch=compute_$(arch),code=sm_$(arch)
-  DEVICE_CUDA_CXX_FLAGS += $(foreach arch,$(DEVICE_ARCHS),$(GENCODE))
+ifeq ($(DEVICE_ARCH),all)
+  DEVICE_CUDA_CXX_FLAGS += --fatbin -gencode arch=compute_35,code=compute_35
+else
+  DEVICE_CUDA_CXX_FLAGS += --cubin -gencode arch=compute_$(DEVICE_ARCH),code=sm_$(DEVICE_ARCH)
 endif
 
 ifeq      ($(BUILD_TYPE),release)
@@ -98,7 +99,7 @@ HOST_ISO_CXX_SOURCES    = $(wildcard $(ROOT)/*.cpp)
 HOST_ISO_CXX_TARGETS    = $(HOST_ISO_CXX_SOURCES:.cpp=)
 
 DEVICE_CUDA_CXX_SOURCES = $(wildcard $(ROOT)/*.cu)
-DEVICE_CUDA_CXX_TARGETS = $(DEVICE_CUDA_CXX_SOURCES:.cu=.cubin)
+DEVICE_CUDA_CXX_TARGETS = $(DEVICE_CUDA_CXX_SOURCES:.cu=)
 
 ###############################################################################
 
@@ -139,10 +140,10 @@ $(BUILD_DIRECTORY):
 	$(CUDA_CXX) $(HOST_ISO_CXX_FLAGS) $< -o $(BUILD_DIRECTORY)/$(*F) 2>&1 | tee $(BUILD_DIRECTORY)/$(*F).build_log
 	@echo
 
-%.cubin : %.cu $(BUILD_DIRECTORY)
+% : %.cu $(BUILD_DIRECTORY)
 	@echo "###############################################################################"
 	@echo "# Building device binary $(*F) in directory $(BUILD_DIRECTORY)"
 	@echo "###############################################################################"
-	$(CUDA_CXX) $(DEVICE_CUDA_CXX_FLAGS) $< -cubin -o $(BUILD_DIRECTORY)/$(*F).cubin 2>&1 | tee $(BUILD_DIRECTORY)/$(*F).cubin.build_log
+	$(CUDA_CXX) $(DEVICE_CUDA_CXX_FLAGS) $< -o $(BUILD_DIRECTORY)/$(*F) 2>&1 | tee $(BUILD_DIRECTORY)/$(*F).build_log
 	@echo
 

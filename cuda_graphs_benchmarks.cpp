@@ -5,6 +5,7 @@
 
 // WARNING: Not for the faint of heart.
 
+// TODO: Fix `--foo bar` vs `--foo=bar` bug in command line processing.
 // TODO: Convert to ranges.
 // TODO: Refactor CUDA smart pointer handlers.
 // TODO: My kingdom for `std::string_view`.
@@ -127,6 +128,7 @@ Testing
 #include <chrono>
 #include <cmath>
 #include <cassert>
+#include <cstdlib> // For `realpath`.
 
 #include <cuda.h>
 
@@ -1008,6 +1010,44 @@ bool constexpr floating_point_equal(
 {
   if ((x + epsilon >= y) && (x - epsilon <= y)) return true;
   else return false;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+std::string realpath(std::string const& path)
+{
+  char buffer[1024];
+
+  if (realpath(path.c_str(), buffer))
+    return std::string(buffer);
+  else
+    return path;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+inline void ltrim(std::string& s)
+{
+  s.erase(
+    s.begin()
+  , std::find_if(s.begin(), s.end(), [] (int ch) { return !std::isspace(ch); }
+  ));
+}
+
+inline void rtrim(std::string& s)
+{
+  s.erase(
+    std::find_if(
+      s.rbegin(), s.rend(), [] (int ch) { return !std::isspace(ch); }
+    ).base()
+  , s.end()
+  );
+}
+
+inline void trim(std::string& s)
+{
+  ltrim(s);
+  rtrim(s);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -2142,13 +2182,17 @@ struct adjacency_matrix_parsing_error : std::exception
 
 struct adjacency_matrix_is_not_square : adjacency_matrix_parsing_error
 {
-  adjacency_matrix_is_not_square(std::string const& filename, int32_t i)
+  adjacency_matrix_is_not_square(
+    std::string const& filename, int32_t fileindex, int32_t row
+    )
     : message()
   {
-    message  = "Adjacency matrix in file `";
+    message  = "Adjacency matrix #";
+    message += fileindex;
+    message += " in file `";
     message += filename;
     message += "` is not square, check row ";
-    message += i;
+    message += row;
   }
 
   virtual ~adjacency_matrix_is_not_square() noexcept {}
@@ -2164,14 +2208,23 @@ private:
 
 struct adjacency_matrix_is_not_a_01_matrix : adjacency_matrix_parsing_error
 {
-  adjacency_matrix_is_not_a_01_matrix(std::string const& filename, int32_t value)
+  adjacency_matrix_is_not_a_01_matrix(
+    std::string const& filename, int32_t fileindex
+  , int32_t row, int32_t column, int32_t value
+    )
     : message()
   {
-    message  = "Adjacency matrix in file `";
+    message  = "Adjacency matrix #";
+    message += fileindex;
+    message += " in file `";
     message += filename;
-    message += "` is not a (0, 1) matrix; found value `";
+    message += "` is not a `(0, 1)` matrix; found value `";
     message += std::to_string(value);
-    message += "`"; 
+    message += "` at `(";
+    message += row;
+    message += ", ";
+    message += column;
+    message += ")";
   }
 
   virtual ~adjacency_matrix_is_not_a_01_matrix() noexcept {}
@@ -2187,10 +2240,14 @@ private:
 
 struct adjacency_matrix_contains_a_loop: adjacency_matrix_parsing_error
 {
-  adjacency_matrix_contains_a_loop(std::string const& filename, int32_t vertex)
+  adjacency_matrix_contains_a_loop(
+    std::string const& filename, int32_t fileindex, int32_t vertex
+    )
     : message()
   {
-    message  = "Adjacency matrix in file `";
+    message  = "Adjacency matrix #";
+    message += fileindex;
+    message += " in file `";
     message += filename;
     message += "` contains a loop for vertex ";
     message += vertex;
@@ -2212,13 +2269,12 @@ private:
   std::string message;
 };
 
-adjacency_matrix adjacency_matrix_from_file(std::string const& filename)
+adjacency_matrix adjacency_matrix_from_stream(
+  std::string const& filename  // For diagnostics only.
+, int32_t            fileindex // For diagnostics only.
+, std::ifstream&     ifs
+)
 {
-  std::ifstream ifs(filename);
-
-  if (!ifs.is_open())
-    throw file_could_not_be_opened(filename);
-
   // Get the first line.
   std::string line;
   std::getline(ifs, line);
@@ -2233,32 +2289,66 @@ adjacency_matrix adjacency_matrix_from_file(std::string const& filename)
   {
     if (0 == j && 0 != first_row[j])
       // There should be no loops (this doesn't detect cycles, just loops).
-      throw adjacency_matrix_contains_a_loop(filename, 0);
+      throw adjacency_matrix_contains_a_loop(filename, fileindex, 0);
 
     A(0, j) = first_row[j];
   }
 
   for (int32_t i = 1; std::getline(ifs, line); ++i)
   {
+    // Remove leading and trailing whitespace.
+    trim(line);
+
+    // Check for a blank line.
+    if (line.empty())
+      // Make sure the matrix wasn't ended early.
+      if (N != i)
+        throw adjacency_matrix_is_not_square(filename, fileindex, i);
+      // Otherwise we are done.
+      else
+        return A;
+
     if (N <= i)
-      throw adjacency_matrix_is_not_square(filename, i);
+      throw adjacency_matrix_is_not_square(filename, fileindex, i);
 
     auto const row = split(line, ",", from_string<int>);
 
     if (N != row.size())
-      throw adjacency_matrix_is_not_square(filename, i);
+      throw adjacency_matrix_is_not_square(filename, fileindex, i);
 
     for (int32_t j = 0; j < N; ++j)
     {
       if (i == j && 0 != row[j])
         // There should be no loops (this doesn't detect cycles, just loops).
-        throw adjacency_matrix_contains_a_loop(filename, i);
+        throw adjacency_matrix_contains_a_loop(filename, fileindex, i);
+
+      if (0 != row[j] && 1 != row[j])
+        throw adjacency_matrix_is_not_a_01_matrix(
+          filename, fileindex, i, j, row[j]
+        );
 
       A(i, j) = row[j];
     }
   } while (std::getline(ifs, line));
 
   return A;
+}
+
+std::vector<adjacency_matrix> adjacency_matrices_from_file(
+  std::string const& filename
+)
+{
+  std::ifstream ifs(filename);
+
+  if (!ifs.is_open())
+    throw file_could_not_be_opened(filename);
+
+  std::vector<adjacency_matrix> As;
+
+  for (int32_t fileindex = 0; !ifs.eof(); ++ fileindex)
+    As.emplace_back(adjacency_matrix_from_stream(filename, fileindex, ifs));
+
+  return As;
 }
 
 struct edge final
@@ -2677,9 +2767,12 @@ operator<<(std::ostream& os, output_types ot)
 
 int main(int argc, char** argv)
 {
+
   int32_t constexpr default_device = 0;
 
-  constexpr char const* default_cubin_path = "./build/TT/";
+  std::string const this_exe(argv[0]);
+  std::string const default_binary_path
+    = realpath(this_exe.substr(0, this_exe.find_last_of("/")));
 
   output_types constexpr default_output_type = pretty_models;
 
@@ -2716,10 +2809,11 @@ int main(int argc, char** argv)
     << "    Run experiments on the CUDA device with the specified"     << endl
     << "    device ordinal."                                           << endl
     << "    Default: \"" << default_device << "\"."                    << endl
-    << "--device=STRING"                                               << endl
-    << "    The location of the benchmark's cubin. If the cubin is"    << endl
-    << "    not found there, the current directory is searched."       << endl
-    << "    Default: \"" << default_cubin_path << "\"."                << endl
+    << "--binary-path=STRING"                                          << endl
+    << "    The directory containing the benchmark's device "          << endl
+    << "    binaries. If the binaries are not found there, the "       << endl
+    << "    current directory is searched."                            << endl
+    << "    Default: \"" << default_binary_path << "\"."               << endl
     << "--no-header"                                                   << endl
     << "    Do not print CSV headers."                                 << endl
     << "--output-type=STRING"                                          << endl
@@ -2794,7 +2888,7 @@ int main(int argc, char** argv)
     clp, "device", default_device
   );
 
-  std::string const cubin_path = clp("device", default_cubin_path);
+  std::string const binary_path = realpath(clp("binary-path", default_binary_path));
 
   bool const header = !clp.has("no-header");
 
@@ -2963,6 +3057,8 @@ int main(int argc, char** argv)
       << debug_command_line_processing         << endl
     << "device                                == "
       << device                                << endl
+    << "binary-path                           == "
+      << binary_path                           << endl
     << "header                                == "
       << header                                << endl
     << "output-type                           == "
@@ -3042,7 +3138,7 @@ int main(int argc, char** argv)
         // Load the module. 
         try
         {
-          module = cuda_module(cubin_path + "kernels.cubin");
+          module = cuda_module(binary_path + "/kernels");
         }
         catch (cuda_drv_exception& e) 
         {
@@ -3051,7 +3147,7 @@ int main(int argc, char** argv)
             throw;
 
           // Try to load from the current directory.
-          module = cuda_module("kernels.cubin");
+          module = cuda_module("kernels");
         }
 
         // Load our kernels.
@@ -3320,60 +3416,67 @@ int main(int argc, char** argv)
 
   for (auto&& filename : adjacency_matrices)
   {
-    auto const A = adjacency_matrix_from_file(filename);
+    auto const As = adjacency_matrices_from_file(filename);
 
-    auto const edges = edges_from_adjacency_matrix(A);
+    for (int32_t fileindex = 0; fileindex < As.size(); ++fileindex)
+    {
+      auto const& A = As[fileindex];
 
-    auto graph_compile_from_edges_model = arithmetic_mean_harness(
-      [&] {
-        return inline_harness(
-          [&] {
-            cuda_compiled_graph cg;
+      auto const edges = edges_from_adjacency_matrix(A);
 
-            return experiment(
-              std::string("graph_compile `") + filename + "`"
-            , graph_compile_warmups_per_kernel
-            , graph_compile_samples_per_kernel
-            , A.nx()       // Kernels per operation.
-            , edges.size() // Dependencies per operation.
-            , [&] {
-                cg = MV(graph_compile_from_edges(
-                  noop, noop_shape, A.nx(), edges
-                ));
-              }
-              // We don't want to measure the cost of destroying the previous
-              // samples' graph, so we clean it up in the setup hook.
-            , [&] { cg.reset(); }
-            );
-          }
-        , data_reporter
-        );
-      }
-    , arithmetic_mean_reporter
-    );
+      auto graph_compile_from_edges_model = arithmetic_mean_harness(
+        [&] {
+          return inline_harness(
+            [&] {
+              cuda_compiled_graph cg;
 
-    auto graph_launch_from_edges_model = arithmetic_mean_harness(
-      [&] {
-        return cuda_stream_harness(
-          [&] (cuda_stream& stream) {
-            auto cg = graph_compile_from_edges(
-              noop, noop_shape, A.nx(), edges
-            );
+              return experiment(
+                  std::string("graph_compile `") + filename + "` #"
+                + std::to_string(fileindex)
+              , graph_compile_warmups_per_kernel
+              , graph_compile_samples_per_kernel
+              , A.nx()       // Kernels per operation.
+              , edges.size() // Dependencies per operation.
+              , [&] {
+                  cg = MV(graph_compile_from_edges(
+                    noop, noop_shape, A.nx(), edges
+                  ));
+                }
+                // We don't want to measure the cost of destroying the previous
+                // samples' graph, so we clean it up in the setup hook.
+              , [&] { cg.reset(); }
+              );
+            }
+          , data_reporter
+          );
+        }
+      , arithmetic_mean_reporter
+      );
 
-            return experiment(
-              std::string("graph_launch `") + filename + "`"
-            , graph_launch_warmups_per_kernel
-            , graph_launch_samples_per_kernel
-            , A.nx()       // Kernels per operation.
-            , edges.size() // Dependencies per operation.
-            , [&] { graph_launch(stream, cg); }
-            );
-          }
-        , data_reporter
-        );
-      }
-    , arithmetic_mean_reporter
-    );
+      auto graph_launch_from_edges_model = arithmetic_mean_harness(
+        [&] {
+          return cuda_stream_harness(
+            [&] (cuda_stream& stream) {
+              auto cg = graph_compile_from_edges(
+                noop, noop_shape, A.nx(), edges
+              );
+
+              return experiment(
+                  std::string("graph_launch `") + filename + "` #"
+                + std::to_string(fileindex)
+              , graph_launch_warmups_per_kernel
+              , graph_launch_samples_per_kernel
+              , A.nx()       // Kernels per operation.
+              , edges.size() // Dependencies per operation.
+              , [&] { graph_launch(stream, cg); }
+              );
+            }
+          , data_reporter
+          );
+        }
+      , arithmetic_mean_reporter
+      );
+    }
   }
 
   THROW_ON_CUDA_DRV_ERROR(cuCtxSynchronize());

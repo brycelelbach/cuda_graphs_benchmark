@@ -10,8 +10,6 @@ amount of execution time spent in host code asynchronously launch kernels.
 
 ### Building
 
-First, you'll need check out the codebase locally using Git:
-
 ```
 # Check out the codebase locally using Git:
 git clone ssh://git@gitlab-master.nvidia.com:12051/cuda_umd/cuda_graphs_benchmarks.git
@@ -19,7 +17,7 @@ git clone ssh://git@gitlab-master.nvidia.com:12051/cuda_umd/cuda_graphs_benchmar
 # Build the codebase using the system's default host ISO C++ compiler and CUDA
 # toolkit installation.
 cd cuda_graphs_benchmarks
-make
+make 
 
 # Run the benchmark once:
 ./build__release/cuda_graphs_benchmarks
