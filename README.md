@@ -2,8 +2,8 @@
 
 **Reply-To:** Bryce Adelstein Lelbach <brycelelbach@gmail.com>
 
-This repository contains a series of benchmarks for the CUDA Graphs interface.
-The benchmarks are currently focused on measuring **launch latency**, e.g. the
+This repository contains a series of benchmarks for CUDA Graphs. The
+benchmarks are currently focused on measuring **launch latency**, e.g. the
 amount of execution time spent in host code asynchronously launch kernels.
 
 ## Getting Started
