@@ -14,15 +14,15 @@ First, you'll need check out the codebase locally using Git:
 
 ```
 # Check out the codebase locally using Git:
-git clone ssh://git@gitlab-master.nvidia.com:12051/cuda_umd/benchmark_cuda_graphs.git
+git clone ssh://git@gitlab-master.nvidia.com:12051/cuda_umd/cuda_graphs_benchmarks.git
 
 # Build the codebase using the system's default host ISO C++ compiler and CUDA
 # toolkit installation.
-cd benchmark_cuda_graphs
+cd cuda_graphs_benchmarks
 make
 
 # Run the benchmark once:
-build__release/benchmark_cuda_graphs
+./build__release/cuda_graphs_benchmarks
 ```
 
 The `ISO_CXX` and `CUDA_CXX` variables can be used to build the codebase with a
@@ -30,15 +30,15 @@ particular host ISO C++ compiler and/or CUDA toolkit installation:
 
 ```
 # Check out the codebase locally using Git:
-git clone ssh://git@gitlab-master.nvidia.com:12051/cuda_umd/benchmark_cuda_graphs.git
+git clone ssh://git@gitlab-master.nvidia.com:12051/cuda_umd/cuda_graphs_benchmarks.git
 
 # Build the codebase using the system's default host ISO C++ compiler and CUDA
 # toolkit installation.
-cd benchmark_cuda_graphs:
+cd cuda_graphs_benchmarks:
 make ISO_CXX=/path/to/c++ CUDA_CXX=/path/to/nvcc
 
 # Run the benchmark once:
-build__release/benchmark_cuda_graphs
+./build__release/cuda_graphs_benchmarks
 ```
 
 The executables will be built in a folder inside your local copy of the codebase.
@@ -70,7 +70,7 @@ they are conducted with. To learn more about these options, invoke the benchmark
 with the `--help` flag:
 
 ``
-build__release/benchmark_cuda_graphs --help
+./build__release/cuda_graphs_benchmarks --help
 ``
 
 ## Prerequisites
