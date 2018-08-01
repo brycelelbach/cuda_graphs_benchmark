@@ -109,3 +109,14 @@ This codebase should work with the following compilers:
 - MSVC 2015 and higher.
   - **NOTE:** This may not work out of the box.
 
+## Troubleshooting
+
+If you are encountering problems or have questions while building and running
+this software, please file an issue in this GitLab repository.
+
+**[Please follow these guidelines when filing issues. Issues that do not follow these guidelines may not be actionable and thus will not receive attention.](https://github.com/brycelelbach/cpp_bug_reporting_guidelines)**
+
+The Makefile for this software will produce a log file, `build.log` when it is
+invoked. When filing issues, you should always include the `build.log` from your
+local build.
+
