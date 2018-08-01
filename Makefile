@@ -77,6 +77,7 @@ DEVICE_CUDA_CXX_FLAGS += -std=$(CXX_VERSION)
 # Tell the host/device CUDA C++ compiler which host ISO C++ compiler to use
 # when compiling host ISO C++ code.
 HOST_ISO_CXX_FLAGS += -ccbin $(ISO_CXX)
+DEVICE_CUDA_CXX_FLAGS += -ccbin $(ISO_CXX)
 
 # Add `HOST_ISO_CXX_XCOMPILER_FLAGS` to `HOST_ISO_CXX_FLAGS`.
 HOST_ISO_CXX_FLAGS += $(foreach flag,$(HOST_ISO_CXX_XCOMPILER_FLAGS),-Xcompiler $(flag))
