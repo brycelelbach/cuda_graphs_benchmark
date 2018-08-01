@@ -1,5 +1,5 @@
 // Copyright 2018 NVIDIA Corporation
-// Author: Bryce Adelstein Lelbach aka wash <brycelelbach@gmail.com>
+// Reply-To: Bryce Adelstein Lelbach aka wash <brycelelbach@gmail.com>
 //
 // Distributed under the Boost Software License v1.0 (boost.org/LICENSE_1_0.txt)
 
@@ -123,6 +123,7 @@ Testing
 #include <string>
 #include <exception>
 #include <iostream>
+#include <fstream>
 #include <chrono>
 #include <cmath>
 #include <cassert>
@@ -876,6 +877,13 @@ inline std::ostream& operator<<(std::ostream& os, std::vector<int32_t> const& v)
   return os;
 }
 
+inline std::ostream& operator<<(std::ostream& os, std::vector<std::string> const& v)
+{
+  for (int32_t i = 0; i < v.size(); ++i)
+    os << (0 == i ? "" : ",") << v[i];
+  return os;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // `std::transform_reduce` and `std::reduce` (Iterator and Range Interfaces).
 
@@ -1000,6 +1008,75 @@ bool constexpr floating_point_equal(
 {
   if ((x + epsilon >= y) && (x - epsilon <= y)) return true;
   else return false;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+inline std::vector<std::string>
+split(std::string const& str, std::string const& delim)
+{
+  // TODO Use `std::string_view` when possible.
+  std::vector<std::string> tokens;
+  std::string::size_type prev = 0, pos = 0;
+  do
+  {
+    pos = str.find(delim, prev);
+    if (pos == std::string::npos) pos = str.length();
+    std::string token = str.substr(prev, pos - prev);
+    if (!token.empty()) tokens.emplace_back(MV(token));
+    prev = pos + delim.length();
+  }
+  while (pos < str.length() && prev < str.length());
+  return tokens;
+}
+
+template <typename TransformOperation>
+auto split(
+  std::string const&   str
+, std::string const&   delim
+, TransformOperation&& transform_op
+  )
+{
+  // TODO Use `std::string_view` when possible.
+  using T = decltype(
+    std::declval<TransformOperation>()(std::declval<std::string>())
+  );
+  std::vector<T> tokens;
+  std::string::size_type prev = 0, pos = 0;
+  do
+  {
+    pos = str.find(delim, prev);
+    if (pos == std::string::npos) pos = str.length();
+    std::string token = str.substr(prev, pos - prev);
+    if (!token.empty()) tokens.emplace_back(transform_op(MV(token)));
+    prev = pos + delim.length();
+  }
+  while (pos < str.length() && prev < str.length());
+  return tokens;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+// Returns 0 if the conversion fails.
+template <typename To>
+To from_string(std::string const& str);
+
+template <>
+int from_string<int>(std::string const& str)
+{
+  return std::atoi(str.c_str());
+}
+
+template <>
+long from_string<long>(std::string const& str)
+{
+  return std::atol(str.c_str());
+}
+
+template <>
+long long from_string<long long>(std::string const& str)
+{
+  return std::atoll(str.c_str());
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1294,10 +1371,68 @@ RETURNS(
 ///////////////////////////////////////////////////////////////////////////////
 
 template <typename T>
-struct linear_regression_no_intercept final
-  : uncertain_value<T, linear_regression_no_intercept<T>>
+struct arithmetic_mean_model final
+  : uncertain_value<T, arithmetic_mean_model<T>>
 {
-  using base_type = uncertain_value<T, linear_regression_no_intercept<T>>;
+  using base_type = uncertain_value<T, arithmetic_mean_model<T>>;
+
+  using typename base_type::value_type;
+
+  value_type const average;
+  value_type const stdev;
+
+  constexpr arithmetic_mean_model(std::string const& name_, T average_, T stdev_)
+    : base_type(name_)
+    , average(MV(average_))
+    , stdev(MV(stdev_))
+  {}
+
+  base_type&       base()       noexcept { return *this; }
+  base_type const& base() const noexcept { return *this; }
+
+  value_type constexpr value_unrounded() const
+  RETURNS(average);
+
+  value_type constexpr absolute_uncertainty_unrounded() const 
+  RETURNS(stdev);
+
+  value_type constexpr relative_uncertainty_unrounded() const
+  {
+    return uncertainty_absolute_to_relative(
+      value_unrounded(), absolute_uncertainty_unrounded()
+    );
+  }
+};
+
+template <typename T>
+auto constexpr make_arithmetic_mean_model(
+  std::string const& name, T average, T stdev
+)
+RETURNS(arithmetic_mean_model<T>(name, MV(average), MV(stdev)));
+
+///////////////////////////////////////////////////////////////////////////////
+
+template <typename T, typename Derived, typename Size>
+auto constexpr arithmetic_mean(uncertain_value<T, Derived> const& x, Size size)
+{
+  T const average = x.value() / size;
+  T const stdev   = uncertainty_multiplicative(
+      average
+    , x.value(), x.absolute_uncertainty()
+    , T(size), T{}
+  );
+  return make_arithmetic_mean_model<T>(x.name(), average, stdev);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+template <typename T>
+struct ordinary_least_squares_estimator_no_intercept_model final
+  : uncertain_value<T, ordinary_least_squares_estimator_no_intercept_model<T>>
+{
+  using base_type = uncertain_value<
+    T, ordinary_least_squares_estimator_no_intercept_model<T>
+  >;
 
   using typename base_type::value_type;
 
@@ -1305,7 +1440,7 @@ struct linear_regression_no_intercept final
   value_type const r_squared;
 
   // Precondition: `0 <= r_squared_ && 1 >= r_squared_`.
-  constexpr linear_regression_no_intercept(
+  constexpr ordinary_least_squares_estimator_no_intercept_model(
       std::string const& name_, T slope_, T r_squared_
     )
     : base_type(name_)
@@ -1331,10 +1466,10 @@ struct linear_regression_no_intercept final
 };
 
 template <typename T>
-auto constexpr make_linear_regression_no_intercept(
+auto constexpr make_ordinary_least_squares_estimator_no_intercept_model(
   std::string const& name, T slope, T r_squared
 )
-RETURNS(linear_regression_no_intercept<T>(
+RETURNS(ordinary_least_squares_estimator_no_intercept_model<T>(
   name, MV(slope), MV(r_squared))
 );
 
@@ -1363,7 +1498,7 @@ auto constexpr ordinary_least_squares_estimator_no_intercept(
   assert(x.size() == y.size());
 
   if (0 == x.size())
-    return make_linear_regression_no_intercept(name, T{}, T{});
+    return make_ordinary_least_squares_estimator_no_intercept_model(name, T{}, T{});
 
   auto const n  = x.size();
 
@@ -1394,7 +1529,7 @@ auto constexpr ordinary_least_squares_estimator_no_intercept(
   // Formula for simple linear regression modelling with ordinary least squares
   // with no intercept:
   //
-  //   https://en.wikipedia.org/wiki/Simple_linear_regression#Simple_linear_regression_without_the_intercept_term_(single_regressor)
+  //   https://en.wikipedia.org/wiki/Simple_ordinary_least_squares#Simple_ordinary_least_squares_without_the_intercept_term_(single_regressor)
   // 
   // TODO: Replace with a proper reference.
 
@@ -1425,7 +1560,9 @@ auto constexpr ordinary_least_squares_estimator_no_intercept(
 
   auto const r_squared = r * r;
 
-  return make_linear_regression_no_intercept(name, slope, r_squared);
+  return make_ordinary_least_squares_estimator_no_intercept_model(
+    name, slope, r_squared
+  );
 }
 
 /// \brief Computes a linear regression of \a y vs \a x with an origin of 
@@ -1499,6 +1636,9 @@ struct experiment_result final
       value_unrounded(), absolute_uncertainty_unrounded()
     );
   }
+
+  int32_t size() const
+  RETURNS(kernels_per_operation);
 };
 
 template <typename T>
@@ -1741,6 +1881,480 @@ auto graph_compile_independent(
 
 ///////////////////////////////////////////////////////////////////////////////
 
+struct placeholder {};
+
+constexpr placeholder _ {}; // This does not make me a bad person.
+
+struct layout_left
+{
+  using index_type = std::ptrdiff_t;
+
+private:
+  index_type nx_, ny_;
+  index_type px_, py_;
+
+public:
+  constexpr layout_left() noexcept
+    : nx_(0), ny_(0), px_(0), py_(0)
+  {}
+
+  constexpr layout_left(index_type nx, index_type ny) noexcept
+    : nx_(nx), ny_(ny), px_(0), py_(0)
+  {}
+
+  constexpr layout_left(
+      index_type nx, index_type ny
+    , index_type px, index_type py
+      ) noexcept
+    : nx_(nx), ny_(ny), px_(px), py_(py)
+  {}
+
+  constexpr index_type operator()(index_type i, index_type j) const noexcept
+  {
+      return stride_x() * i + stride_y() * j;
+  }
+  constexpr index_type operator()(placeholder, index_type j) const noexcept
+  {
+      return stride_y() * j;
+  }
+  constexpr index_type operator()(index_type i, placeholder) const noexcept
+  {
+      return stride_x() * i;
+  }
+
+  constexpr index_type stride_x() const noexcept
+  {
+      return 1;
+  }
+  constexpr index_type stride_y() const noexcept
+  {
+      return (nx_ + px_);
+  }
+
+  constexpr index_type nx() const noexcept
+  {
+      return nx_;
+  }
+  constexpr index_type ny() const noexcept
+  {
+      return ny_;
+  }
+
+  constexpr index_type span() const noexcept
+  {
+      return (nx_ * ny_) + stride_x() * px_ + stride_y() * py_; 
+  }
+};
+
+struct layout_right
+{
+  using index_type = std::ptrdiff_t;
+
+private:
+  index_type nx_, ny_;
+  index_type px_, py_;
+
+public:
+  constexpr layout_right() noexcept
+    : nx_(0), ny_(0), px_(0), py_(0)
+  {}
+
+  constexpr layout_right(index_type nx, index_type ny) noexcept
+    : nx_(nx), ny_(ny), px_(0), py_(0)
+  {}
+
+  constexpr layout_right(
+      index_type nx, index_type ny
+    , index_type px, index_type py
+      ) noexcept
+    : nx_(nx), ny_(ny), px_(px), py_(py)
+  {}
+
+  constexpr index_type operator()(index_type i, index_type j) const noexcept
+  {
+      return stride_x() * i + stride_y() * j;
+  }
+  constexpr index_type operator()(placeholder, index_type j) const noexcept
+  {
+      return stride_y() * j;
+  }
+  constexpr index_type operator()(index_type i, placeholder) const noexcept
+  {
+      return stride_x() * i;
+  }
+
+  constexpr index_type stride_x() const noexcept
+  {
+      return (ny_ + py_);
+  }
+  constexpr index_type stride_y() const noexcept
+  {
+      return 1;
+  }
+
+  constexpr index_type nx() const noexcept
+  {
+      return nx_;
+  }
+  constexpr index_type ny() const noexcept
+  {
+      return ny_;
+  }
+
+  constexpr index_type span() const noexcept
+  {
+      return (nx_ * ny_) + stride_x() * px_ + stride_y() * py_;  
+  }
+};
+
+template <typename T, typename Layout = layout_right>
+struct vector2d
+{
+  using layout = Layout;
+
+  using index_type      = typename layout::index_type;
+  using value_type      = T;
+  using pointer         = T*;
+  using const_pointer   = T const*;
+  using reference       = T&;
+  using const_reference = T const&;
+
+private:
+  layout layout_;
+  std::vector<T> data_;
+
+public:
+  constexpr vector2d() noexcept : layout_(), data_() {}
+
+  vector2d(index_type nx, index_type ny) 
+    : layout_(), data_()
+  {
+    resize(nx, ny);
+  }
+
+  vector2d(index_type nx, index_type ny, index_type px, index_type py) 
+    : layout_(), data_()
+  {
+    resize(nx, ny, px, py);
+  }
+
+  void resize(index_type nx, index_type ny)
+  {
+    layout_ = layout(nx, ny);
+    data_   = std::vector<T>(layout_.span());
+  }
+
+  void resize(index_type nx, index_type ny, index_type px, index_type py)
+  {
+    layout_ = layout(nx, ny, px, py);
+    data_   = std::vector<T>(layout_.span());
+  }
+
+  const_pointer data() const noexcept
+  {
+    return data_.get();
+  }
+  pointer data() noexcept
+  {
+    return data_.get();
+  }
+
+  const_reference operator()(index_type i, index_type j) const noexcept
+  {
+    return data_[layout_(i, j)];
+  }
+  reference operator()(index_type i, index_type j) noexcept
+  {
+    return data_[layout_(i, j)];
+  }
+
+  const_pointer operator()(placeholder p, index_type j) const noexcept
+  {
+    return &data_[layout_(p, j)];
+  }
+  pointer operator()(placeholder p, index_type j) noexcept
+  {
+    return &data_[layout_(p, j)];
+  }
+
+  const_pointer operator()(index_type i, placeholder p) const noexcept
+  {
+    return &data_[layout_(i, p)];
+  }
+  pointer operator()(index_type i, placeholder p) noexcept
+  {
+    return &data_[layout_(i, p)];
+  }
+
+  constexpr index_type stride_x() const noexcept
+  {
+    return layout_.stride_x();
+  }
+  constexpr index_type stride_y() const noexcept
+  {
+    return layout_.stride_y();
+  }
+
+  constexpr index_type nx() const noexcept
+  {
+    return layout_.nx();
+  }
+  constexpr index_type ny() const noexcept
+  {
+    return layout_.ny();
+  }
+
+  constexpr index_type span() const noexcept
+  {
+    return layout_.span();
+  }
+};
+
+using adjacency_matrix = vector2d<std::uint8_t>;
+// `uint8_t` instead of `bool` because of `vector<bool>`.
+
+struct file_could_not_be_opened : std::exception
+{
+  file_could_not_be_opened(std::string const& filename)
+    : message()
+  {
+    message  = "File `";
+    message += filename;
+    message += "` could not be opened";
+  }
+
+  virtual ~file_could_not_be_opened() noexcept {}
+
+  virtual const char* what() const noexcept
+  {
+    return message.c_str();
+  }
+
+private:
+  std::string message;
+};
+
+struct adjacency_matrix_parsing_error : std::exception
+{
+  virtual ~adjacency_matrix_parsing_error() noexcept {}
+  virtual const char* what() const noexcept = 0;
+};
+
+struct adjacency_matrix_is_not_square : adjacency_matrix_parsing_error
+{
+  adjacency_matrix_is_not_square(std::string const& filename, int32_t i)
+    : message()
+  {
+    message  = "Adjacency matrix in file `";
+    message += filename;
+    message += "` is not square, check row ";
+    message += i;
+  }
+
+  virtual ~adjacency_matrix_is_not_square() noexcept {}
+
+  virtual const char* what() const noexcept
+  {
+    return message.c_str();
+  }
+
+private:
+  std::string message;
+};
+
+struct adjacency_matrix_is_not_a_01_matrix : adjacency_matrix_parsing_error
+{
+  adjacency_matrix_is_not_a_01_matrix(std::string const& filename, int32_t value)
+    : message()
+  {
+    message  = "Adjacency matrix in file `";
+    message += filename;
+    message += "` is not a (0, 1) matrix; found value `";
+    message += std::to_string(value);
+    message += "`"; 
+  }
+
+  virtual ~adjacency_matrix_is_not_a_01_matrix() noexcept {}
+
+  virtual const char* what() const noexcept
+  {
+    return message.c_str();
+  }
+
+private:
+  std::string message;
+};
+
+struct adjacency_matrix_contains_a_loop: adjacency_matrix_parsing_error
+{
+  adjacency_matrix_contains_a_loop(std::string const& filename, int32_t vertex)
+    : message()
+  {
+    message  = "Adjacency matrix in file `";
+    message += filename;
+    message += "` contains a loop for vertex ";
+    message += vertex;
+    message += "; (";
+    message += vertex;
+    message += ", ";
+    message += vertex;
+    message += ") should be 0";
+  }
+
+  virtual ~adjacency_matrix_contains_a_loop() noexcept {}
+
+  virtual const char* what() const noexcept
+  {
+    return message.c_str();
+  }
+
+private:
+  std::string message;
+};
+
+adjacency_matrix adjacency_matrix_from_file(std::string const& filename)
+{
+  std::ifstream ifs(filename);
+
+  if (!ifs.is_open())
+    throw file_could_not_be_opened(filename);
+
+  // Get the first line.
+  std::string line;
+  std::getline(ifs, line);
+
+  auto const first_row = split(line, ",", from_string<int>);
+
+  auto const N = first_row.size();
+
+  adjacency_matrix A(N, N);
+
+  for (int32_t j = 0; j < N; ++j)
+  {
+    if (0 == j && 0 != first_row[j])
+      // There should be no loops (this doesn't detect cycles, just loops).
+      throw adjacency_matrix_contains_a_loop(filename, 0);
+
+    A(0, j) = first_row[j];
+  }
+
+  for (int32_t i = 1; std::getline(ifs, line); ++i)
+  {
+    if (N <= i)
+      throw adjacency_matrix_is_not_square(filename, i);
+
+    auto const row = split(line, ",", from_string<int>);
+
+    if (N != row.size())
+      throw adjacency_matrix_is_not_square(filename, i);
+
+    for (int32_t j = 0; j < N; ++j)
+    {
+      if (i == j && 0 != row[j])
+        // There should be no loops (this doesn't detect cycles, just loops).
+        throw adjacency_matrix_contains_a_loop(filename, i);
+
+      A(i, j) = row[j];
+    }
+  } while (std::getline(ifs, line));
+
+  return A;
+}
+
+struct edge final
+{
+  int32_t from; 
+  int32_t to;
+
+  constexpr edge()
+    : from{}, to{}
+  {}
+
+  constexpr edge(int32_t from_, int32_t to_)
+    : from(from_), to(to_)
+  {}
+};
+
+std::vector<edge> edges_from_adjacency_matrix(
+  adjacency_matrix const& A
+  )
+{
+  assert(A.nx() == A.ny()); // Must be a square matrix.
+
+  std::vector<edge> edges;
+
+  for (int32_t i = 0; i < A.nx(); ++i)
+    for (int32_t j = 0; j < A.ny(); ++j)
+    {
+      if (A(i, j))
+        edges.push_back(edge(i, j));
+    }
+
+  return edges;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+void graph_add_edges(
+  cuda_graph&                   graph
+, std::vector<edge> const&      edges
+, std::vector<CUgraphNode_st*>& vertices
+  )
+{
+  for (auto&& e : edges)
+  {
+    THROW_ON_CUDA_DRV_ERROR(cuGraphAddDependencies(
+      graph.get(), &vertices[e.from], &vertices[e.to], 1
+    ));
+  }
+}
+
+template <typename... Args> 
+auto graph_compile_from_edges(
+  cuda_function&           f
+, cuda_launch_shape        shape
+, int32_t                  kernels_per_graph
+, std::vector<edge> const& edges
+, Args&&...                args
+)
+{
+  cuda_graph graph;
+
+  void* args_ptrs[] = { std::addressof(args)... };
+
+  CUDA_KERNEL_NODE_PARAMS desc;
+  desc.func = f.get();
+  desc.gridDimX = shape.grid_size;
+  desc.gridDimY = 1;
+  desc.gridDimZ = 1;
+  desc.blockDimX = shape.block_size;
+  desc.blockDimY = 1;
+  desc.blockDimZ = 1;
+  desc.sharedMemBytes = 0;
+  desc.kernelParams = args_ptrs;
+  desc.extra = nullptr;
+
+  // Create vertices.
+
+  std::vector<CUgraphNode_st*> vertices(kernels_per_graph);
+
+  // NOTE: We're not using range-based for and `xrange` here due to a GCC ICE.
+  for (int32_t i = 0; i < kernels_per_graph; ++i)
+  {
+    THROW_ON_CUDA_DRV_ERROR(cuGraphAddKernelNode(
+      &vertices[i], graph.get(), nullptr, 0, &desc
+    ));
+  }
+
+  // Create edges.
+
+  graph_add_edges(graph, edges, vertices);
+
+  return cuda_compiled_graph(graph); 
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
 template <typename Streamish, typename... Args> 
 void traditional_launch(
   Streamish& streamish
@@ -1761,75 +2375,6 @@ void traditional_launch(
 inline void graph_launch(cuda_stream& stream, cuda_compiled_graph& cgraph)
 {
   THROW_ON_CUDA_DRV_ERROR(cuGraphLaunch(cgraph.get(), stream.get()));
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-inline std::vector<std::string>
-split(std::string const& str, std::string const& delim)
-{
-  // TODO Use `std::string_view` when possible.
-  std::vector<std::string> tokens;
-  std::string::size_type prev = 0, pos = 0;
-  do
-  {
-    pos = str.find(delim, prev);
-    if (pos == std::string::npos) pos = str.length();
-    std::string token = str.substr(prev, pos - prev);
-    if (!token.empty()) tokens.emplace_back(MV(token));
-    prev = pos + delim.length();
-  }
-  while (pos < str.length() && prev < str.length());
-  return tokens;
-}
-
-template <typename TransformOperation>
-auto split(
-  std::string const&   str
-, std::string const&   delim
-, TransformOperation&& transform_op
-  )
-{
-  // TODO Use `std::string_view` when possible.
-  using T = decltype(
-    std::declval<TransformOperation>()(std::declval<std::string>())
-  );
-  std::vector<T> tokens;
-  std::string::size_type prev = 0, pos = 0;
-  do
-  {
-    pos = str.find(delim, prev);
-    if (pos == std::string::npos) pos = str.length();
-    std::string token = str.substr(prev, pos - prev);
-    if (!token.empty()) tokens.emplace_back(transform_op(MV(token)));
-    prev = pos + delim.length();
-  }
-  while (pos < str.length() && prev < str.length());
-  return tokens;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-// Returns 0 if the conversion fails.
-template <typename To>
-To from_string(std::string const& str);
-
-template <>
-int from_string<int>(std::string const& str)
-{
-  return std::atoi(str.c_str());
-}
-
-template <>
-long from_string<long>(std::string const& str)
-{
-  return std::atol(str.c_str());
-}
-
-template <>
-long long from_string<long long>(std::string const& str)
-{
-  return std::atoll(str.c_str());
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -2065,9 +2610,9 @@ Integral constexpr get_positive_integral_option(
 , std::string const& key
 , Integral dflt
 , std::enable_if_t<
-    std::is_integral_v<
+    std::is_integral<
       std::remove_cv_t<std::remove_reference_t<Integral>>
-    >
+    >::value
   >* = nullptr
 )
 {
@@ -2091,9 +2636,9 @@ auto constexpr get_positive_integral_option(
 , std::string const& key
 , DefaultFunction&& default_f
 , std::enable_if_t<
-    !std::is_integral_v<
+    !std::is_integral<
       std::remove_cv_t<std::remove_reference_t<DefaultFunction>>
-    >
+    >::value
   >* = nullptr
 )
 {
@@ -2152,7 +2697,7 @@ int main(int argc, char** argv)
   , 32,   48,   64,   80,   96,   112,  128 
   , 256,  384,  512,  640,  768,  896,  1024
   , 2048, 3072, 4096, 5120, 6144, 7168, 8192
-  );
+  ); 
 
   command_line_processor clp(argc, argv);
 
@@ -2220,6 +2765,16 @@ int main(int argc, char** argv)
     << "    A comma separated list of different graph sizes (kernels"  << endl
     << "    per graph) to run experiments on."                         << endl
     << "    Default: " << default_graph_sizes << "."                   << endl
+    << "--adjacency-matrices=LIST-OF-FILENAMES"                        << endl
+    << "    Construct and test graphs from the adjacency matrices "    << endl
+    << "    described in each of the comma separated list of files "   << endl
+    << "    There should be one graph per file. Adjacency matrices "   << endl
+    << "    should be square, comma separated, contain either 0s or "  << endl
+    << "    1s in each cell, and all their eigenvalues should be "     << endl
+    << "    real and positive."                                        << endl
+    << "--adjacency-matrices-only"                                     << endl
+    << "    Only run experiments on the adjacency matrices specified " << endl
+    << "    via `--adjacency-matrices`."                               << endl
                                                                        << endl
     << "The number of warmup and regular samples must be larger than"  << endl
     << "the largest graph size. It is recommended they be "            << endl
@@ -2391,33 +2946,45 @@ int main(int argc, char** argv)
     }
   );
 
+  std::vector<std::string> const adjacency_matrices = clp(
+    "adjacency-matrices"
+  , [&] (std::string const& value) { return split(value, ","); }
+  , [] { return std::vector<std::string>(); }
+  );
+
+  bool const adjacency_matrices_only = clp.has("adjacency-matrices-only");
+
   if (debug_command_line_processing)
   {
     using std::endl;
 
     std::cout
-    << "debug_command_line_processing         == "
+    << "debug-command-line-processing         == "
       << debug_command_line_processing         << endl
     << "device                                == "
       << device                                << endl
     << "header                                == "
       << header                                << endl
-    << "output_type                           == "
+    << "output-type                           == "
       << output_type                           << endl
-    << "graph_compile_samples_per_kernel      == "
+    << "graph-compile-samples-per-kernel      == "
       << graph_compile_samples_per_kernel      << endl
-    << "graph_compile_warmups_per_kernel      == "
+    << "graph-compile-warmups-per-kernel      == "
       << graph_compile_warmups_per_kernel      << endl
-    << "graph_launch_samples_per_kernel       == "
+    << "graph-launch-samples-per-kernel       == "
       << graph_launch_samples_per_kernel       << endl
-    << "graph_launch_warmups_per_kernel       == "
+    << "graph-launch-warmups-per-kernel       == "
       << graph_launch_warmups_per_kernel       << endl
-    << "traditional_launch_samples_per_kernel == "
+    << "traditional-launch-samples-per-kernel == "
       << traditional_launch_samples_per_kernel << endl
-    << "traditional_launch_warmups_per_kernel == "
+    << "traditional-launch-warmups-per-kernel == "
       << traditional_launch_warmups_per_kernel << endl
-    << "graph_sizes                           == "
+    << "graph-sizes                           == "
       << graph_sizes                           << endl
+    << "adjacency-matrices                    == "
+      << adjacency_matrices                    << endl
+    << "adjacency-matrices-only               == "
+      << adjacency_matrices_only               << endl
     ;
   }
 
@@ -2512,7 +3079,7 @@ int main(int argc, char** argv)
           std::cout << result << std::endl;
       };
 
-  auto const linear_regression_reporter
+  auto const ordinary_least_squares_reporter
     = [&] (auto&& model)
       {
         if (csv_models == output_type)
@@ -2531,9 +3098,7 @@ int main(int argc, char** argv)
   auto const arithmetic_mean_reporter
     = [&] (auto&& model)
       {
-        if      (csv_data == output_type)
-          std::cout << model << std::endl;
-        else if (csv_models == output_type)
+        if (csv_models == output_type)
           std::cout << model.base() << std::endl;
         else if (pretty_models == output_type)
           std::cout << model.name()
@@ -2573,7 +3138,16 @@ int main(int argc, char** argv)
         return result;
       };
 
-  auto const linear_regression_harness
+  auto const arithmetic_mean_harness
+    = [&] (auto&& f, auto&& reporter)
+      {
+        auto const result = FWD(f)();
+        auto const mean = arithmetic_mean(result, result.size());
+        FWD(reporter)(mean);
+        return mean;
+      };
+
+  auto const ordinary_least_squares_harness
     = [&] (auto&& f, auto&& reporter)
     {
       std::vector<experiment_result<double>> results;
@@ -2594,140 +3168,213 @@ int main(int argc, char** argv)
 
   /////////////////////////////////////////////////////////////////////////////
 
-  auto traditional_launch_linearly_dependent_model = cuda_stream_harness(
-    [&] (cuda_stream& stream) {
-      return experiment(
-        "traditional_launch_linearly_dependent"
-      , traditional_launch_warmups_per_kernel
-      , traditional_launch_samples_per_kernel
-      , 1 // Kernels per operation.
-      , 1 // Dependencies per operation.
-      , [&] { traditional_launch(stream, noop, noop_shape); }
-      );
-    }
-  , arithmetic_mean_reporter
-  );
+  if (!adjacency_matrices_only)
+  {
+    auto traditional_launch_linearly_dependent_model = arithmetic_mean_harness(
+      [&] {
+        return cuda_stream_harness(
+          [&] (cuda_stream& stream) {
+            return experiment(
+              "traditional_launch_linearly_dependent"
+            , traditional_launch_warmups_per_kernel
+            , traditional_launch_samples_per_kernel
+            , 1 // Kernels per operation.
+            , 0 // Dependencies per operation.
+            , [&] { traditional_launch(stream, noop, noop_shape); }
+            );
+          }
+        , data_reporter
+        );
+      }
+    , arithmetic_mean_reporter
+    );
 
-  auto graph_compile_linearly_dependent_model = linear_regression_harness(
-    [&] (int32_t kernels_per_graph)
-    {
-      return inline_harness(
-        [&] {
-          cuda_compiled_graph cg;
+    auto graph_compile_linearly_dependent_model = ordinary_least_squares_harness(
+      [&] (int32_t kernels_per_graph)
+      {
+        return inline_harness(
+          [&] {
+            cuda_compiled_graph cg;
 
-          return experiment(
-            "graph_compile_linearly_dependent"
-          , graph_compile_warmups_per_kernel
-          , graph_compile_samples_per_kernel
-          , kernels_per_graph       // Kernels per operation.
-          , (kernels_per_graph - 1) // Dependencies per operation.
-          , [&] {
-              cg = MV(graph_compile_linearly_dependent(
-                noop, noop_shape, kernels_per_graph
-              ));
-            }
-            // We don't want to measure the cost of destroying the previous
-            // samples' graph, so we clean it up in the setup hook.
-          , [&] { cg.reset(); }
-          );
-        }
-      , data_reporter
-      );
-    }
-  , linear_regression_reporter
-  );
+            return experiment(
+              "graph_compile_linearly_dependent"
+            , graph_compile_warmups_per_kernel
+            , graph_compile_samples_per_kernel
+            , kernels_per_graph       // Kernels per operation.
+            , (kernels_per_graph - 1) // Dependencies per operation.
+            , [&] {
+                cg = MV(graph_compile_linearly_dependent(
+                  noop, noop_shape, kernels_per_graph
+                ));
+              }
+              // We don't want to measure the cost of destroying the previous
+              // samples' graph, so we clean it up in the setup hook.
+            , [&] { cg.reset(); }
+            );
+          }
+        , data_reporter
+        );
+      }
+    , ordinary_least_squares_reporter
+    );
 
-  auto graph_launch_linearly_dependent_model = linear_regression_harness(
-    [&] (int32_t kernels_per_graph)
-    {
-      return cuda_stream_harness(
-        [&] (cuda_stream& stream) {
-          auto cg = graph_compile_linearly_dependent(
-            noop, noop_shape, kernels_per_graph
-          );
+    auto graph_launch_linearly_dependent_model = ordinary_least_squares_harness(
+      [&] (int32_t kernels_per_graph)
+      {
+        return cuda_stream_harness(
+          [&] (cuda_stream& stream) {
+            auto cg = graph_compile_linearly_dependent(
+              noop, noop_shape, kernels_per_graph
+            );
 
-          return experiment(
-            "graph_launch_linearly_dependent"
-          , graph_launch_warmups_per_kernel
-          , graph_launch_samples_per_kernel
-          , kernels_per_graph       // Kernels per operation.
-          , (kernels_per_graph - 1) // Dependencies per operation.
-          , [&] { graph_launch(stream, cg); }
-          );
-        }
-      , data_reporter
-      );
-    }
-  , linear_regression_reporter
-  );
+            return experiment(
+              "graph_launch_linearly_dependent"
+            , graph_launch_warmups_per_kernel
+            , graph_launch_samples_per_kernel
+            , kernels_per_graph       // Kernels per operation.
+            , (kernels_per_graph - 1) // Dependencies per operation.
+            , [&] { graph_launch(stream, cg); }
+            );
+          }
+        , data_reporter
+        );
+      }
+    , ordinary_least_squares_reporter
+    );
 
-  auto traditional_launch_independent_model = cuda_stream_pool_harness(
-    [&] (cuda_stream_pool& pool) {
-      return experiment(
-        "traditional_launch_independent"
-      , traditional_launch_warmups_per_kernel
-      , traditional_launch_samples_per_kernel
-      , 1 // Kernels per operation.
-      , 1 // Dependencies per operation.
-      , [&] { traditional_launch(pool, noop, noop_shape); }
-      );
-    }
-  , arithmetic_mean_reporter
-  , 64 // Streams in pool.
-  );
+    auto traditional_launch_independent_model = arithmetic_mean_harness(
+      [&] {
+        return cuda_stream_pool_harness(
+          [&] (cuda_stream_pool& pool) {
+            return experiment(
+              "traditional_launch_independent"
+            , traditional_launch_warmups_per_kernel
+            , traditional_launch_samples_per_kernel
+            , 1 // Kernels per operation.
+            , 0 // Dependencies per operation.
+            , [&] { traditional_launch(pool, noop, noop_shape); }
+            );
+          }
+        , data_reporter
+        , 64 // Streams in pool.
+        );
+      }
+    , arithmetic_mean_reporter
+    );
 
-  auto graph_compile_independent_model = linear_regression_harness(
-    [&] (int32_t kernels_per_graph)
-    {
-      return inline_harness(
-        [&] {
-          cuda_compiled_graph cg;
+    auto graph_compile_independent_model = ordinary_least_squares_harness(
+      [&] (int32_t kernels_per_graph)
+      {
+        return inline_harness(
+          [&] {
+            cuda_compiled_graph cg;
 
-          return experiment(
-            "graph_compile_independent"
-          , graph_compile_warmups_per_kernel
-          , graph_compile_samples_per_kernel
-          , kernels_per_graph       // Kernels per operation.
-          , (kernels_per_graph - 1) // Dependencies per operation.
-          , [&] {
-              cg = MV(graph_compile_independent(
-                noop, noop_shape, kernels_per_graph
-              ));
-            }
-            // We don't want to measure the cost of destroying the previous
-            // samples' graph, so we clean it up in the setup hook.
-          , [&] { cg.reset(); }
-          );
-        }
-      , data_reporter
-      );
-    }
-  , linear_regression_reporter
-  );
+            return experiment(
+              "graph_compile_independent"
+            , graph_compile_warmups_per_kernel
+            , graph_compile_samples_per_kernel
+            , kernels_per_graph       // Kernels per operation.
+            , (kernels_per_graph - 1) // Dependencies per operation.
+            , [&] {
+                cg = MV(graph_compile_independent(
+                  noop, noop_shape, kernels_per_graph
+                ));
+              }
+              // We don't want to measure the cost of destroying the previous
+              // samples' graph, so we clean it up in the setup hook.
+            , [&] { cg.reset(); }
+            );
+          }
+        , data_reporter
+        );
+      }
+    , ordinary_least_squares_reporter
+    );
 
-  auto graph_launch_independent_model = linear_regression_harness(
-    [&] (int32_t kernels_per_graph)
-    {
-      return cuda_stream_harness(
-        [&] (cuda_stream& stream) {
-          auto cg = graph_compile_independent(
-            noop, noop_shape, kernels_per_graph
-          );
+    auto graph_launch_independent_model = ordinary_least_squares_harness(
+      [&] (int32_t kernels_per_graph)
+      {
+        return cuda_stream_harness(
+          [&] (cuda_stream& stream) {
+            auto cg = graph_compile_independent(
+              noop, noop_shape, kernels_per_graph
+            );
 
-          return experiment(
-            "graph_launch_independent"
-          , graph_launch_warmups_per_kernel
-          , graph_launch_samples_per_kernel
-          , kernels_per_graph       // Kernels per operation.
-          , (kernels_per_graph - 1) // Dependencies per operation.
-          , [&] { graph_launch(stream, cg); }
-          );
-        }
-      , data_reporter
-      );
-    }
-  , linear_regression_reporter
-  );
+            return experiment(
+              "graph_launch_independent"
+            , graph_launch_warmups_per_kernel
+            , graph_launch_samples_per_kernel
+            , kernels_per_graph       // Kernels per operation.
+            , (kernels_per_graph - 1) // Dependencies per operation.
+            , [&] { graph_launch(stream, cg); }
+            );
+          }
+        , data_reporter
+        );
+      }
+    , ordinary_least_squares_reporter
+    );
+  }
+
+  /////////////////////////////////////////////////////////////////////////////
+
+  for (auto&& filename : adjacency_matrices)
+  {
+    auto const A = adjacency_matrix_from_file(filename);
+
+    auto const edges = edges_from_adjacency_matrix(A);
+
+    auto graph_compile_from_edges_model = arithmetic_mean_harness(
+      [&] {
+        return inline_harness(
+          [&] {
+            cuda_compiled_graph cg;
+
+            return experiment(
+              std::string("graph_compile `") + filename + "`"
+            , graph_compile_warmups_per_kernel
+            , graph_compile_samples_per_kernel
+            , A.nx()       // Kernels per operation.
+            , edges.size() // Dependencies per operation.
+            , [&] {
+                cg = MV(graph_compile_from_edges(
+                  noop, noop_shape, A.nx(), edges
+                ));
+              }
+              // We don't want to measure the cost of destroying the previous
+              // samples' graph, so we clean it up in the setup hook.
+            , [&] { cg.reset(); }
+            );
+          }
+        , data_reporter
+        );
+      }
+    , arithmetic_mean_reporter
+    );
+
+    auto graph_launch_from_edges_model = arithmetic_mean_harness(
+      [&] {
+        return cuda_stream_harness(
+          [&] (cuda_stream& stream) {
+            auto cg = graph_compile_from_edges(
+              noop, noop_shape, A.nx(), edges
+            );
+
+            return experiment(
+              std::string("graph_launch `") + filename + "`"
+            , graph_launch_warmups_per_kernel
+            , graph_launch_samples_per_kernel
+            , A.nx()       // Kernels per operation.
+            , edges.size() // Dependencies per operation.
+            , [&] { graph_launch(stream, cg); }
+            );
+          }
+        , data_reporter
+        );
+      }
+    , arithmetic_mean_reporter
+    );
+  }
 
   THROW_ON_CUDA_DRV_ERROR(cuCtxSynchronize());
 }
