@@ -6,17 +6,19 @@ This repository contains a series of benchmarks for CUDA Graphs. The
 benchmarks are currently focused on measuring **launch latency**, e.g. the
 amount of execution time spent in host code asynchronously launch kernels.
 
-## Getting Started
+## Building
 
-### Building
+### Native build on *NIX
+
+The following process can be used to compile for *NIX operating systems like Linux:
 
 ```
 # Check out the codebase locally using Git:
 git clone ssh://git@gitlab-master.nvidia.com:12051/cuda_umd/cuda_graphs_benchmarks.git
+cd cuda_graphs_benchmarks
 
 # Build the codebase using the system's default host ISO C++ compiler and CUDA
 # toolkit installation.
-cd cuda_graphs_benchmarks
 make 
 
 # Run the benchmark once:
@@ -30,19 +32,35 @@ particular host ISO C++ compiler and/or CUDA toolkit installation:
 # Check out the codebase locally using Git:
 git clone ssh://git@gitlab-master.nvidia.com:12051/cuda_umd/cuda_graphs_benchmarks.git
 
-# Build the codebase using the system's default host ISO C++ compiler and CUDA
-# toolkit installation.
-cd cuda_graphs_benchmarks:
+# Build the codebase using `/path/to/c++` and `/path/to/nvcc`.
+cd cuda_graphs_benchmarks
 make ISO_CXX=/path/to/c++ CUDA_CXX=/path/to/nvcc
 
 # Run the benchmark once:
 ./build__release/cuda_graphs_benchmarks
 ```
 
-The executables will be built in a folder inside your local copy of the codebase.
-By default, this folder is called `build__release`.
+### Cross build targeting QNX
 
-### Running
+The following process can be used to cross compile for QNX:
+
+```
+# Check out the codebase locally using Git:
+git clone ssh://git@gitlab-master.nvidia.com:12051/cuda_umd/cuda_graphs_benchmarks.git
+cd cuda_graphs_benchmarks
+
+# Build the codebase using a QNX GCC cross compiler (`/path/to/qnx/g++`) and
+# `/path/to/nvcc`. 
+export QNX_ROOT=/path/to/qnx
+export QNX_HOST=${QNX_HOST}/host/your-os/your-arch
+export QNX_TARGET=${QNX_TARGET}/target/qnx7 
+make ISO_CXX=${QNX_ROOT}/path/to/g++ CUDA_CXX=/path/to/nvcc
+```
+
+## Running
+
+After a success build, the executables can be found in a folder inside your
+local copy of the codebase. By default, this folder is called `build__release`.
 
 **NOTE: It is critical to run the benchmark in a correctly configured environment
 to obtain accurate and consistent results.**
@@ -84,11 +102,15 @@ The following are required to build this codebase.
 -
 ### Supported Operating Systems
 
-This codebase should work on any operating system that supports CUDA.
+This codebase should be portable to any operating system that supports CUDA,
+although it may not work out of the box.
 
 It has been tested with the following operating systems:
 
 - Debian 9.1 + Linux 4.9.0.
+
+If you find you cannot build or run this software on your platform, please file
+an issue.
 
 ### Supported Host ISO C++ Compilers
 
@@ -97,17 +119,21 @@ for device code (`.cu` files).
 
 It has been tested with the following host ISO C++ compilers:
 
-- GCC 8.1.
-- GCC 6.4.
-- GCC 5.5.
+- GCC 8.1 Linux x86-64 native compiler.
+- GCC 6.4 Linux x86-64 native compiler.
+- GCC 5.5 Linux x86-64 native compiler.
+- GCC 5.4 QNX aarch64le cross compiler.
 
-This codebase should work with the following compilers:
+This codebase should be portable to any of the following compilers, although it
+may not work out of the box:
 
 - GCC 5.0 and higher.
 - Clang 3.4 and higher.
 - PGI 8.6 and higher.
 - MSVC 2015 and higher.
-  - **NOTE:** This may not work out of the box.
+
+If you find you cannot build or run this software on your platform, please file
+an issue.
 
 ## Troubleshooting
 
