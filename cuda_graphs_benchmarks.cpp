@@ -128,9 +128,12 @@ Testing
 #include <chrono>
 #include <cmath>
 #include <cassert>
-#include <cstdlib> // For `realpath`.
 
 #include <cuda.h>
+
+// Including `<stdlib.h>` or `<cstdlib>` on QNX 7.0 doesn't seem to pull in a
+// declaration of `realpath`, so just declare it ourselves.
+extern char* realpath(char const*, char*);
 
 ///////////////////////////////////////////////////////////////////////////////
 
