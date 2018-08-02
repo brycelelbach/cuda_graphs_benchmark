@@ -31,28 +31,37 @@ CUDA_CXX              ?= nvcc
 # Flags for compiling device CUDA C++ code.
 DEVICE_CUDA_CXX_FLAGS ?=
 
-# TODO: Print out all build flags and do version check
+###############################################################################
 
-$(info ###############################################################################)
-$(info # Settings)
-$(info ###############################################################################)
-$(info # DEVICE_ARCH                  : `$(value DEVICE_ARCH)`)
-$(info # BUILD_TYPE                   : `$(value BUILD_TYPE)`)
-$(info # BUILD_DIRECTORY              : `$(value BUILD_DIRECTORY)`)
-$(info # CXX_VERSION                  : `$(value CXX_VERSION)`)
-$(info # ISO_CXX                      : `$(value CXX)`)
-$(info # HOST_ISO_CXX_FLAGS           : `$(value HOST_ISO_CXX_FLAGS)`)
-$(info # HOST_ISO_CXX_XCOMPILER_FLAGS : `$(value HOST_ISO_CXX_XCOMPILER_FLAGS)`)
-$(info # CUDA_CXX                     : `$(value CUDA_CXX)`)
-$(info # DEVICE_CUDA_CXX_FLAGS        : `$(value DEVICE_CUDA_CXX_FLAGS)`)
-$(info ) # Print blank newline.
+# Clear previous build log, if there is one.
+IGNORE := $(shell rm -f build.log)
 
-$(info ###############################################################################)
-$(info # Compiler versions)
-$(info ###############################################################################)
-$(info # ISO C++ compiler version  : `$(shell $(ISO_CXX) --version)`)
-$(info # CUDA C++ compiler Version : `$(shell $(CUDA_CXX) --version)`)
-$(info ) # Print blank newline.
+# Diagnostics macro for use outside of rules. Prints its single argument to
+# both stdout and the build log. Note that it has to escape `$`.
+define PRINT_CONFIG =
+  $(info $(shell echo $(subst $$,\$$,$(1)) | tee -a build.log))
+endef
+
+# Diagnostics macro for use within rules. Prints its single argument to both
+# stdout and the build log.
+define PRINT_RULE =
+	@echo $(1) | tee -a build.log
+	@$(1) 2>&1 | tee -a build.log
+endef
+
+IGNORE := $(call PRINT_CONFIG,"///////////////////////////////////////////////////////////////////////////////")
+IGNORE := $(call PRINT_CONFIG,"// Settings")
+IGNORE := $(call PRINT_CONFIG,"///////////////////////////////////////////////////////////////////////////////")
+IGNORE := $(call PRINT_CONFIG,"// DEVICE_ARCH                  : $(value DEVICE_ARCH)")
+IGNORE := $(call PRINT_CONFIG,"// BUILD_TYPE                   : $(value BUILD_TYPE)")
+IGNORE := $(call PRINT_CONFIG,"// BUILD_DIRECTORY              : $(value BUILD_DIRECTORY)")
+IGNORE := $(call PRINT_CONFIG,"// CXX_VERSION                  : $(value CXX_VERSION)")
+IGNORE := $(call PRINT_CONFIG,"// ISO_CXX                      : $(value CXX)")
+IGNORE := $(call PRINT_CONFIG,"// HOST_ISO_CXX_FLAGS           : $(value HOST_ISO_CXX_FLAGS)")
+IGNORE := $(call PRINT_CONFIG,"// HOST_ISO_CXX_XCOMPILER_FLAGS : $(value HOST_ISO_CXX_XCOMPILER_FLAGS)")
+IGNORE := $(call PRINT_CONFIG,"// CUDA_CXX                     : $(value CUDA_CXX)")
+IGNORE := $(call PRINT_CONFIG,"// DEVICE_CUDA_CXX_FLAGS        : $(value DEVICE_CUDA_CXX_FLAGS)")
+IGNORE := $(call PRINT_CONFIG) # Print blank newline.
 
 ###############################################################################
 
@@ -104,47 +113,68 @@ DEVICE_CUDA_CXX_TARGETS = $(DEVICE_CUDA_CXX_SOURCES:.cu=)
 
 ###############################################################################
 
-$(info ###############################################################################)
-$(info # Computed variables)
-$(info ###############################################################################)
-$(info # ROOT                    : `$(ROOT)`)
-$(info # BUILD_DIRECTORY         : `$(BUILD_DIRECTORY)`)
-$(info # HOST_ISO_CXX_FLAGS      : `$(HOST_ISO_CXX_FLAGS)`)
-$(info # HOST_ISO_CXX_SOURCES    : `$(HOST_ISO_CXX_SOURCES)`)
-$(info # HOST_ISO_CXX_TARGETS    : `$(HOST_ISO_CXX_TARGETS)`)
-$(info # DEVICE_CUDA_CXX_FLAGS   : `$(DEVICE_CUDA_CXX_FLAGS)`)
-$(info # DEVICE_CUDA_CXX_SOURCES : `$(DEVICE_CUDA_CXX_SOURCES)`)
-$(info # DEVICE_CUDA_CXX_TARGETS : `$(DEVICE_CUDA_CXX_TARGETS)`)
-$(info ) # Print blank newline.
+IGNORE := $(call PRINT_CONFIG,"///////////////////////////////////////////////////////////////////////////////")
+IGNORE := $(call PRINT_CONFIG,"// Computed variables")
+IGNORE := $(call PRINT_CONFIG,"///////////////////////////////////////////////////////////////////////////////")
+IGNORE := $(call PRINT_CONFIG,"// ROOT                    : $(ROOT)")
+IGNORE := $(call PRINT_CONFIG,"// BUILD_DIRECTORY         : $(BUILD_DIRECTORY)")
+IGNORE := $(call PRINT_CONFIG,"// HOST_ISO_CXX_FLAGS      : $(HOST_ISO_CXX_FLAGS)")
+IGNORE := $(call PRINT_CONFIG,"// HOST_ISO_CXX_SOURCES    : $(HOST_ISO_CXX_SOURCES)")
+IGNORE := $(call PRINT_CONFIG,"// HOST_ISO_CXX_TARGETS    : $(HOST_ISO_CXX_TARGETS)")
+IGNORE := $(call PRINT_CONFIG,"// DEVICE_CUDA_CXX_FLAGS   : $(DEVICE_CUDA_CXX_FLAGS)")
+IGNORE := $(call PRINT_CONFIG,"// DEVICE_CUDA_CXX_SOURCES : $(DEVICE_CUDA_CXX_SOURCES)")
+IGNORE := $(call PRINT_CONFIG,"// DEVICE_CUDA_CXX_TARGETS : $(DEVICE_CUDA_CXX_TARGETS)")
+IGNORE := $(call PRINT_CONFIG) # Print blank newline.
 
 ###############################################################################
 
 all: $(HOST_ISO_CXX_TARGETS) $(DEVICE_CUDA_CXX_TARGETS)
 
+print_environment:
+	@echo '///////////////////////////////////////////////////////////////////////////////' | tee -a build.log
+	@echo '// Host ISO C++ compiler version' | tee -a build.log
+	@echo '///////////////////////////////////////////////////////////////////////////////' | tee -a build.log
+	@$(ISO_CXX) --version 2>&1 | tee -a build.log
+	@echo | tee -a build.log
+	@echo '///////////////////////////////////////////////////////////////////////////////' | tee -a build.log
+	@echo '// Host/device CUDA C++ compiler version' | tee -a build.log
+	@echo '///////////////////////////////////////////////////////////////////////////////' | tee -a build.log
+	@$(CUDA_CXX) --version 2>&1 | tee -a build.log
+	@echo | tee -a build.log
+	@echo '///////////////////////////////////////////////////////////////////////////////' | tee -a build.log
+	@echo '// Environment' | tee -a build.log
+	@echo '///////////////////////////////////////////////////////////////////////////////' | tee -a build.log
+	@env 2>&1 | tee -a build.log
+	@echo | tee -a build.log
+
 clean:
-	@echo "###############################################################################"
-	@echo "# Cleaning build directory $(BUILD_DIRECTORY)"
-	@echo "###############################################################################"
-	@rm -f $(BUILD_DIRECTORY)/*
-	@if [ -d "$(BUILD_DIRECTORY)" ]; then rmdir $(BUILD_DIRECTORY); fi
-	@echo
+	@echo '///////////////////////////////////////////////////////////////////////////////' | tee -a build.log
+	@echo '// Cleaning build directory $(BUILD_DIRECTORY)' | tee -a build.log
+	@echo '///////////////////////////////////////////////////////////////////////////////' | tee -a build.log
+	$(call PRINT_RULE,rm -f $(BUILD_DIRECTORY)/*)
+	$(call PRINT_RULE,[ -d "$(BUILD_DIRECTORY)" ] && rmdir $(BUILD_DIRECTORY))
+	@echo | tee -a build.log
 
-.PHONY: all clean
+.PHONY: all print_environment clean
 
-$(BUILD_DIRECTORY):
-	@mkdir -p $@
+$(BUILD_DIRECTORY): print_environment
+	@echo '///////////////////////////////////////////////////////////////////////////////' | tee -a build.log
+	@echo '// Making build directory $(BUILD_DIRECTORY)' | tee -a build.log
+	@echo '///////////////////////////////////////////////////////////////////////////////' | tee -a build.log
+	$(call PRINT_RULE,mkdir -p $@)
+	@echo | tee -a build.log
 
 % : %.cpp $(BUILD_DIRECTORY)
-	@echo "###############################################################################"
-	@echo "# Building host executable $(*F) in directory $(BUILD_DIRECTORY)"
-	@echo "###############################################################################"
-	$(CUDA_CXX) $(HOST_ISO_CXX_FLAGS) $< -o $(BUILD_DIRECTORY)/$(*F) 2>&1 | tee $(BUILD_DIRECTORY)/$(*F).build_log
-	@echo
+	@echo '///////////////////////////////////////////////////////////////////////////////' | tee -a build.log
+	@echo '// Building host executable $(*F) in directory $(BUILD_DIRECTORY)' | tee -a build.log
+	@echo '///////////////////////////////////////////////////////////////////////////////' | tee -a build.log
+	$(call PRINT_RULE,$(CUDA_CXX) $(HOST_ISO_CXX_FLAGS) $< -o $(BUILD_DIRECTORY)/$(*F))
+	@echo | tee -a build.log
 
 % : %.cu $(BUILD_DIRECTORY)
-	@echo "###############################################################################"
-	@echo "# Building device binary $(*F) in directory $(BUILD_DIRECTORY)"
-	@echo "###############################################################################"
-	$(CUDA_CXX) $(DEVICE_CUDA_CXX_FLAGS) $< -o $(BUILD_DIRECTORY)/$(*F) 2>&1 | tee $(BUILD_DIRECTORY)/$(*F).build_log
-	@echo
+	@echo '///////////////////////////////////////////////////////////////////////////////' | tee -a build.log
+	@echo '// Building device binary $(*F) in directory $(BUILD_DIRECTORY)' | tee -a build.log
+	@echo '///////////////////////////////////////////////////////////////////////////////' | tee -a build.log
+	$(call PRINT_RULE,$(CUDA_CXX) $(DEVICE_CUDA_CXX_FLAGS) $< -o $(BUILD_DIRECTORY)/$(*F))
+	@echo | tee -a build.log
 
