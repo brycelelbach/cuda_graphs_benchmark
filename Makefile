@@ -101,6 +101,9 @@ ROOT = $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 ROOT            := $(ROOT:/=)
 BUILD_DIRECTORY := $(BUILD_DIRECTORY:/=)
 
+HOST_ISO_CXX_FLAGS    += -I$(ROOT)
+DEVICE_CUDA_CXX_FLAGS += -I$(ROOT)
+
 # Strip leading and trailing whitespace from flags.
 HOST_ISO_CXX_FLAGS    := $(strip $(HOST_ISO_CXX_FLAGS))
 DEVICE_CUDA_CXX_FLAGS := $(strip $(DEVICE_CUDA_CXX_FLAGS))

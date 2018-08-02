@@ -132,291 +132,13 @@ Testing
 
 #include <cuda.h>
 
+#include <cuda/preprocessor.hpp>
+#include <cuda/type_deduction.hpp>
+#include <cuda/exception.hpp>
+
 // Including `<stdlib.h>` or `<cstdlib>` on QNX 7.0 doesn't seem to pull in a
 // declaration of `realpath`, so just declare it ourselves.
 extern char* realpath(char const*, char*);
-
-///////////////////////////////////////////////////////////////////////////////
-
-/// \def PP_CAT2(a, b)
-/// \brief Concatenates the tokens \a a and \b b.
-///
-/// \par <b>Example</b>:
-///
-/// \code
-/// #include <iostream>
-/// 
-/// int main()
-/// {
-///   std::cout << PP_CAT2(1, PP_CAT2(2, 3)) << std::endl;
-/// }
-/// \endcode
-///
-/// The above code expands to:
-///
-/// \code
-/// #include <iostream>
-/// 
-/// int main()
-/// {
-///   std::cout << 123 << std::endl;
-/// }
-/// \endcode
-///
-#define PP_CAT2(a, b) PP_CAT2_IMPL(a, b)
-
-#if    defined(_MSC_VER)                                                      \
-    && (defined(__EDG__) || defined(__EDG_VERSION__))                         \
-    && (defined(__INTELLISENSE__) || __EDG_VERSION__ >= 308)
-    #define PP_CAT2_IMPL(a, b) PP_CAT2_IMPL2(~, a ## b)
-    #define PP_CAT2_IMPL2(p, res) res
-#else
-    #define PP_CAT2_IMPL(a, b) a ## b
-#endif
-
-///////////////////////////////////////////////////////////////////////////////
-
-/// \def PP_EXPAND(x)
-/// \brief Performs macro expansion on \a x. 
-///
-/// \par <b>Example</b>:
-///
-/// \code
-/// #include <iostream>
-///
-/// #define FOO_BAR() "foo_bar"
-/// #define BUZZ()     PP_EXPAND(PP_CAT2(FOO_, BAR)())
-///
-/// int main()
-/// {
-///   std::cout << BUZZ() << std::endl;
-/// }
-/// \endcode
-///
-/// The above code expands to:
-///
-/// \code
-/// #include <iostream>
-/// 
-/// int main()
-/// {
-///   std::cout << "foo_bar" << std::endl;
-/// }
-/// \endcode
-///
-#define PP_EXPAND(x) x
-
-///////////////////////////////////////////////////////////////////////////////
-
-/// \def PP_ARITY(...)
-/// \brief Returns the number of arguments that \a PP_ARITY was called with.
-///
-/// \par <b>Example</b>:
-///
-/// \code
-/// #include <iostream>
-/// 
-/// int main()
-/// {
-///   std::cout << PP_ARITY()        << std::endl
-///             << PP_ARITY(x)       << std::endl
-///             << PP_ARITY(x, y)    << std::endl
-///             << PP_ARITY(x, y, z) << std::endl;
-/// }
-/// \endcode
-///
-/// The above code expands to:
-///
-/// \code
-/// #include <iostream>
-/// 
-/// int main()
-/// {
-///   std::cout << 0 << std::endl
-///             << 1 << std::endl
-///             << 2 << std::endl
-///             << 3 << std::endl;
-/// }
-/// \endcode
-///
-#define PP_ARITY(...)                                                         \
-  PP_EXPAND(PP_ARITY_IMPL(__VA_ARGS__,                                        \
-  63,62,61,60,59,58,57,56,55,54,53,52,51,50,49,48,                            \
-  47,46,45,44,43,42,41,40,39,38,37,36,35,34,33,32,                            \
-  31,30,29,28,27,26,25,24,23,22,21,20,19,18,17,16,                            \
-  15,14,13,12,11,10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0))                           \
-  /**/
-
-#define PP_ARITY_IMPL(                                                        \
-   _1, _2, _3, _4, _5, _6, _7, _8, _9,_10,_11,_12,_13,_14,_15,_16,            \
-  _17,_18,_19,_20,_21,_22,_23,_24,_25,_26,_27,_28,_29,_30,_31,_32,            \
-  _33,_34,_35,_36,_37,_38,_39,_40,_41,_42,_43,_44,_45,_46,_47,_48,            \
-  _49,_50,_51,_52,_53,_54,_55,_56,_57,_58,_59,_60,_61,_62,_63,  N,...) N      \
-  /**/
-
-/// \def PP_DISPATCH(basename, ...)
-/// \brief Expands to <tt>basenameN(...)</tt>, where <tt>N</tt> is the number
-///        of variadic arguments that \a PP_DISPATCH was called with. This macro
-///        can be used to implement "macro overloading".
-///
-/// \par <b>Example</b>:
-///
-/// \code
-/// #include <iostream>
-/// 
-/// #define PLUS(...) PP_DISPATCH(PLUS, __VA_ARGS__)
-/// #define PLUS1(x)       x
-/// #define PLUS2(x, y)    x + y
-/// #define PLUS3(x, y, z) x + y + z
-/// 
-/// int main()
-/// {
-///   std::cout << PLUS(1)       << std::endl
-///             << PLUS(1, 2)    << std::endl
-///             << PLUS(1, 2, 3) << std::endl; 
-/// }
-/// \endcode
-///
-/// The above code expands to:
-///
-/// \code
-/// #include <iostream>
-/// 
-/// #define PLUS(...) PP_DISPATCH(PLUS, __VA_ARGS__)
-/// #define PLUS1(x)       x
-/// #define PLUS2(x, y)    x + y
-/// #define PLUS3(x, y, z) x + y + z
-/// 
-/// int main()
-/// {
-///   std::cout << 1         << std::endl
-///             << 1 + 2     << std::endl
-///             << 1 + 2 + 3 << std::endl; 
-/// }
-/// \endcode
-///
-#define PP_DISPATCH(basename, ...)                                            \
-  PP_EXPAND(PP_CAT2(basename, PP_ARITY(__VA_ARGS__))(__VA_ARGS__))            \
-  /**/
-
-///////////////////////////////////////////////////////////////////////////////
-
-/// \def CURRENT_FUNCTION
-/// \brief The name of the current function as a string.
-///
-#if    defined(__GNUC__)                                                      \
-    || (defined(__MWERKS__) && (__MWERKS__ >= 0x3000))                        \
-    || (defined(__ICC) && (__ICC >= 600)) || defined(__ghs__)
-  #define CURRENT_FUNCTION __PRETTY_FUNCTION__
-#elif defined(__DMC__) && (__DMC__ >= 0x810)
-  #define CURRENT_FUNCTION __PRETTY_FUNCTION__
-#elif defined(__FUNCSIG__)
-  #define CURRENT_FUNCTION __FUNCSIG__
-#elif    (defined(__INTEL_COMPILER) && (__INTEL_COMPILER >= 600))             \
-      || (defined(__IBMCPP__) && (__IBMCPP__ >= 500))
-  #define CURRENT_FUNCTION __FUNCTION__
-#elif defined(__BORLANDC__) && (__BORLANDC__ >= 0x550)
-  #define CURRENT_FUNCTION __FUNC__
-#elif defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901)
-  #define CURRENT_FUNCTION __func__
-#elif defined(__cplusplus) && (__cplusplus >= 201103)
-  #define CURRENT_FUNCTION __func__
-#else
-  #define CURRENT_FUNCTION "(unknown)"
-#endif
-
-///////////////////////////////////////////////////////////////////////////////
-
-/// \def FWD(x)
-/// \brief Performs universal forwarding of a universal reference.
-///
-#define FWD(x) ::std::forward<decltype(x)>(x)
-
-/// \def MV(x)
-/// \brief Moves `x`.
-///
-#define MV(x) ::std::move(x)
-
-/// \def RETOF(invocable, ...)
-/// \brief Expands to the type returned by invoking an instance of the invocable
-///        type \a invocable with parameters of type <tt>__VA_ARGS__</tt>.
-///
-#define RETOF(...)   PP_DISPATCH(RETOF, __VA_ARGS__)
-#define RETOF1(C)    decltype(::std::declval<C>()())
-#define RETOF2(C, V) decltype(::std::declval<C>()(::std::declval<V>()))
-
-/// \def RETURNS(...)
-/// \brief Expands to a function definition that returns the expression
-///        <tt>__VA_ARGS__</tt>.
-///
-#define RETURNS(...)                                                          \
-  noexcept(noexcept(decltype(__VA_ARGS__)(__VA_ARGS__)))                      \
-  { return (__VA_ARGS__); }                                                   \
-  /**/
-
-/// \def AUTORETURNS(...)
-/// \brief Expands to a function definition, including a trailing returning
-///        type, that returns the expression <tt>__VA_ARGS__</tt>.
-///
-#define AUTORETURNS(...)                                                      \
-  noexcept(noexcept(decltype(__VA_ARGS__)(__VA_ARGS__)))                      \
-  -> decltype(__VA_ARGS__)                                                    \
-  { return (__VA_ARGS__); }                                                   \
-  /**/
-
-/// \def AUTOQUALRETURNS(qual...)
-/// \brief Expands to a function definition, including a trailing returning
-///        type and a qualifier, that returns the expression
-///        <tt>__VA_ARGS__</tt>.
-///
-#define AUTOQUALRETURNS(qualifier, ...)                                       \
-  qualifier                                                                   \
-  noexcept(noexcept(decltype(__VA_ARGS__)(__VA_ARGS__)))                      \
-  -> decltype(__VA_ARGS__)                                                    \
-  { return (__VA_ARGS__); }                                                   \
-  /**/
-
-///////////////////////////////////////////////////////////////////////////////
-
-struct cuda_drv_exception : std::exception
-{
-  cuda_drv_exception(CUresult error_, char const* message_)
-    : error(error_)
-  {
-    char const* str = nullptr;
-    cuGetErrorName(error_, &str);
-    message = str;
-    message += ": ";
-    cuGetErrorString(error_, &str);
-    message += str;
-    message += ": ";
-    message += message_;
-  }
-
-  CUresult code() const
-  {
-    return error;
-  } 
-
-  virtual char const* what() const noexcept
-  { 
-    return message.c_str();
-  } 
-
-private:
-  CUresult error;
-  std::string message;
-};
-
-inline void throw_on_cuda_drv_error(CUresult error, char const* message)
-{
-  if (CUDA_SUCCESS != error)
-    throw cuda_drv_exception(error, message);
-}
-
-#define THROW_ON_CUDA_DRV_ERROR(error)                                        \
-  throw_on_cuda_drv_error(error, CURRENT_FUNCTION)                            \
-  /**/
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -425,7 +147,7 @@ struct cuda_context_deleter final
   void operator()(CUctx_st* context) const
   {
     if (nullptr != context)
-      THROW_ON_CUDA_DRV_ERROR(cuCtxDestroy(context));
+      CUDA_THROW_ON_ERROR(cuCtxDestroy(context));
   }
 };
 
@@ -440,10 +162,10 @@ public:
   cuda_context(int32_t device_ordinal)
   {
     CUdevice device;
-    THROW_ON_CUDA_DRV_ERROR(cuDeviceGet(&device, device_ordinal));
+    CUDA_THROW_ON_ERROR(cuDeviceGet(&device, device_ordinal));
 
     CUctx_st* context;
-    THROW_ON_CUDA_DRV_ERROR(cuCtxCreate(&context, 0, device));
+    CUDA_THROW_ON_ERROR(cuCtxCreate(&context, 0, device));
 
     ptr_.reset(context);
   }
@@ -454,9 +176,9 @@ public:
   cuda_context& operator=(cuda_context const&)     = delete;
   cuda_context& operator=(cuda_context&&) noexcept = default;
 
-  CUctx_st& operator*()  const RETURNS(*ptr_.get());
-  CUctx_st* operator->() const RETURNS(ptr_.get());
-  CUctx_st* get()        const RETURNS(ptr_.get());
+  CUctx_st& operator*()  const _RETURNS(*ptr_.get());
+  CUctx_st* operator->() const _RETURNS(ptr_.get());
+  CUctx_st* get()        const _RETURNS(ptr_.get());
 
   void reset() { ptr_.reset(); }
 };
@@ -468,7 +190,7 @@ struct cuda_module_deleter final
   void operator()(CUmod_st* module) const
   {
     if (nullptr != module)
-      THROW_ON_CUDA_DRV_ERROR(cuModuleUnload(module));
+      CUDA_THROW_ON_ERROR(cuModuleUnload(module));
   }
 };
 
@@ -483,7 +205,7 @@ public:
   cuda_module(std::string const& filename)
   {
     CUmod_st* module;
-    THROW_ON_CUDA_DRV_ERROR(cuModuleLoad(&module, filename.c_str()));
+    CUDA_THROW_ON_ERROR(cuModuleLoad(&module, filename.c_str()));
     ptr_.reset(module);
   }
 
@@ -493,9 +215,9 @@ public:
   cuda_module& operator=(cuda_module const&)     = delete;
   cuda_module& operator=(cuda_module&&) noexcept = default;
 
-  CUmod_st& operator*()  const RETURNS(*ptr_.get());
-  CUmod_st* operator->() const RETURNS(ptr_.get());
-  CUmod_st* get()        const RETURNS(ptr_.get());
+  CUmod_st& operator*()  const _RETURNS(*ptr_.get());
+  CUmod_st* operator->() const _RETURNS(ptr_.get());
+  CUmod_st* get()        const _RETURNS(ptr_.get());
 
   void reset() { ptr_.reset(); }
 };
@@ -518,7 +240,7 @@ public:
   cuda_function(cuda_module& module, char const* function_name)
   {
     CUfunc_st* function;
-    THROW_ON_CUDA_DRV_ERROR(
+    CUDA_THROW_ON_ERROR(
       cuModuleGetFunction(&function, module.get(), function_name)
     );
 
@@ -531,9 +253,9 @@ public:
   cuda_function& operator=(cuda_function const&)     = delete;
   cuda_function& operator=(cuda_function&&) noexcept = default;
 
-  CUfunc_st& operator*()  const RETURNS(*ptr_.get());
-  CUfunc_st* operator->() const RETURNS(ptr_.get());
-  CUfunc_st* get()        const RETURNS(ptr_.get());
+  CUfunc_st& operator*()  const _RETURNS(*ptr_.get());
+  CUfunc_st* operator->() const _RETURNS(ptr_.get());
+  CUfunc_st* get()        const _RETURNS(ptr_.get());
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -543,7 +265,7 @@ struct cuda_stream_deleter final
   void operator()(CUstream_st* stream) const
   {
     if (nullptr != stream)
-      THROW_ON_CUDA_DRV_ERROR(cuStreamDestroy(stream));
+      CUDA_THROW_ON_ERROR(cuStreamDestroy(stream));
   }
 };
 
@@ -557,20 +279,20 @@ public:
   {
 
     CUstream_st* stream;
-    THROW_ON_CUDA_DRV_ERROR(cuStreamCreate(&stream, CU_STREAM_DEFAULT));
+    CUDA_THROW_ON_ERROR(cuStreamCreate(&stream, CU_STREAM_DEFAULT));
     ptr_.reset(stream);
   }
 
   cuda_stream(cuda_stream const&)     = delete;
   cuda_stream(cuda_stream&&) noexcept = default;
 
-  CUstream_st& operator*()  const RETURNS(*ptr_.get());
-  CUstream_st* operator->() const RETURNS(ptr_.get());
-  CUstream_st* get()        const RETURNS(ptr_.get());
+  CUstream_st& operator*()  const _RETURNS(*ptr_.get());
+  CUstream_st* operator->() const _RETURNS(ptr_.get());
+  CUstream_st* get()        const _RETURNS(ptr_.get());
 
   void release() { ptr_.release(); }
 
-  void wait() { THROW_ON_CUDA_DRV_ERROR(cuStreamSynchronize(get())); }
+  void wait() { CUDA_THROW_ON_ERROR(cuStreamSynchronize(get())); }
 };
 
 struct cuda_stream_pool final
@@ -598,7 +320,7 @@ public:
   void wait()
   {
     for (auto&& stream : streams_)
-      THROW_ON_CUDA_DRV_ERROR(cuStreamSynchronize(stream.get()));
+      CUDA_THROW_ON_ERROR(cuStreamSynchronize(stream.get()));
   }
 };
 
@@ -609,7 +331,7 @@ struct cuda_graph_deleter final
   void operator()(CUgraph_st* graph) const
   {
     if (nullptr != graph)
-      THROW_ON_CUDA_DRV_ERROR(cuGraphDestroy(graph));
+      CUDA_THROW_ON_ERROR(cuGraphDestroy(graph));
   }
 };
 
@@ -622,16 +344,16 @@ public:
   cuda_graph()
   {
     CUgraph_st* graph;
-    THROW_ON_CUDA_DRV_ERROR(cuGraphCreate(&graph, 0));
+    CUDA_THROW_ON_ERROR(cuGraphCreate(&graph, 0));
     ptr_.reset(graph);
   }
 
   cuda_graph(cuda_graph const&)     = delete;
   cuda_graph(cuda_graph&&) noexcept = default;
 
-  CUgraph_st& operator*()  const RETURNS(*ptr_.get());
-  CUgraph_st* operator->() const RETURNS(ptr_.get());
-  CUgraph_st* get()        const RETURNS(ptr_.get());
+  CUgraph_st& operator*()  const _RETURNS(*ptr_.get());
+  CUgraph_st* operator->() const _RETURNS(ptr_.get());
+  CUgraph_st* get()        const _RETURNS(ptr_.get());
 };
 
 struct cuda_compiled_graph_deleter final
@@ -639,7 +361,7 @@ struct cuda_compiled_graph_deleter final
   void operator()(CUgraphExec_st* graph) const
   {
     if (nullptr != graph)
-      THROW_ON_CUDA_DRV_ERROR(cuGraphExecDestroy(graph));
+      CUDA_THROW_ON_ERROR(cuGraphExecDestroy(graph));
   }
 };
 
@@ -655,7 +377,7 @@ public:
   {
     CUgraphExec_st* graph;
     CUgraphNode n;
-    THROW_ON_CUDA_DRV_ERROR(
+    CUDA_THROW_ON_ERROR(
       cuGraphInstantiate(&graph, template_.get(), nullptr, nullptr, 0)
     );
     ptr_.reset(graph);
@@ -667,9 +389,9 @@ public:
   cuda_compiled_graph& operator=(cuda_compiled_graph const&)     = delete;
   cuda_compiled_graph& operator=(cuda_compiled_graph&&) noexcept = default;
 
-  CUgraphExec_st& operator*()  const RETURNS(*ptr_.get());
-  CUgraphExec_st* operator->() const RETURNS(ptr_.get());
-  CUgraphExec_st* get()        const RETURNS(ptr_.get());
+  CUgraphExec_st& operator*()  const _RETURNS(*ptr_.get());
+  CUgraphExec_st* operator->() const _RETURNS(ptr_.get());
+  CUgraphExec_st* get()        const _RETURNS(ptr_.get());
 
   void reset() { ptr_.reset(); }
 };
@@ -704,34 +426,34 @@ public:
   {
     T const last;
 
-    constexpr sentinel(T last_) : last(MV(last_)) {}
+    constexpr sentinel(T last_) : last(_MV(last_)) {}
   }; 
 
-  constexpr index_iterator(T current) : current_(MV(current)) {}
+  constexpr index_iterator(T current) : current_(_MV(current)) {}
 
   // InputIterator requirements
 
-  constexpr auto operator*() RETURNS(current_);
+  constexpr auto operator*() _RETURNS(current_);
 
   friend constexpr bool
   operator==(index_iterator const& l, index_iterator const& r)
-  RETURNS(l.current_ == r.current_);
+  _RETURNS(l.current_ == r.current_);
   friend constexpr bool
   operator==(sentinel const& l,       index_iterator const& r)
-  RETURNS(l.last     == r.current_);
+  _RETURNS(l.last     == r.current_);
   friend constexpr bool
   operator==(index_iterator const& l, sentinel const& r)
-  RETURNS(l.current_ == r.last);
+  _RETURNS(l.current_ == r.last);
 
   friend constexpr bool
   operator!=(index_iterator const& l, index_iterator const& r)
-  RETURNS(!(l == r));
+  _RETURNS(!(l == r));
   friend constexpr bool
   operator!=(sentinel const& l,       index_iterator const& r)
-  RETURNS(!(l == r));
+  _RETURNS(!(l == r));
   friend constexpr bool
   operator!=(index_iterator const& l, sentinel const& r)
-  RETURNS(!(l == r));
+  _RETURNS(!(l == r));
 
   // ForwardIterator requirements
 
@@ -745,7 +467,7 @@ public:
   {
     index_iterator tmp(*this);
     ++tmp;
-    return MV(tmp);
+    return _MV(tmp);
   }
 
   // BidirectionIterator requirements
@@ -760,7 +482,7 @@ public:
   {
     index_iterator tmp(*this);
     --tmp;
-    return MV(tmp);
+    return _MV(tmp);
   }
 
   // RandomAccessIterator requirements
@@ -772,66 +494,66 @@ public:
   }
 
   friend constexpr index_iterator operator+(T const& l, index_iterator r) 
-  RETURNS(r += l);
+  _RETURNS(r += l);
   friend constexpr index_iterator operator+(index_iterator l, T const& r) 
-  RETURNS(l += r);
+  _RETURNS(l += r);
 
   friend constexpr index_iterator& operator-=(index_iterator& l, T const& r) 
-  RETURNS(l += -r);
+  _RETURNS(l += -r);
 
   friend constexpr index_iterator operator-(index_iterator l, T const& r) 
-  RETURNS(l -= r);
+  _RETURNS(l -= r);
 
   friend constexpr auto
   operator-(index_iterator const& l, index_iterator const& r) 
-  RETURNS(l.current_ - r.current_);
+  _RETURNS(l.current_ - r.current_);
   friend constexpr auto
   operator-(sentinel const& l,       index_iterator const& r) 
-  RETURNS(l.last     - r.current_);
+  _RETURNS(l.last     - r.current_);
   friend constexpr auto
   operator-(index_iterator const& l, sentinel const& r) 
-  RETURNS(l.current_ - r.last);
+  _RETURNS(l.current_ - r.last);
 
-  constexpr auto operator[](T n) RETURNS(current_ + MV(n));
+  constexpr auto operator[](T n) _RETURNS(current_ + _MV(n));
 
   friend constexpr bool
   operator< (index_iterator const& l, index_iterator const& r)
-  RETURNS(MV(l.current_) < MV(r.current_));
+  _RETURNS(_MV(l.current_) < _MV(r.current_));
   friend constexpr bool
   operator> (index_iterator const& l, index_iterator const& r)
-  RETURNS(r < l);
+  _RETURNS(r < l);
   friend constexpr bool
   operator<=(index_iterator const& l, index_iterator const& r)
-  RETURNS(!(l > r));
+  _RETURNS(!(l > r));
   friend constexpr bool
   operator>=(index_iterator const& l, index_iterator const& r)
-  RETURNS(!(l < r));
+  _RETURNS(!(l < r));
 
   friend constexpr bool
   operator< (sentinel const& l, index_iterator const& r)
-  RETURNS(MV(l.last) < MV(r.current_));
+  _RETURNS(_MV(l.last) < _MV(r.current_));
   friend constexpr bool
   operator> (sentinel const& l, index_iterator const& r)
-  RETURNS(r < l);
+  _RETURNS(r < l);
   friend constexpr bool
   operator<=(sentinel const& l, index_iterator const& r)
-  RETURNS(!(l > r));
+  _RETURNS(!(l > r));
   friend constexpr bool
   operator>=(sentinel const& l, index_iterator const& r)
-  RETURNS(!(l < r));
+  _RETURNS(!(l < r));
 
   friend constexpr bool
   operator< (index_iterator const& l, sentinel const& r)
-  RETURNS(MV(l.current_) < MV(r.last));
+  _RETURNS(_MV(l.current_) < _MV(r.last));
   friend constexpr bool
   operator> (index_iterator const& l, sentinel const& r)
-  RETURNS(r < l);
+  _RETURNS(r < l);
   friend constexpr bool
   operator<=(index_iterator const& l, sentinel const& r)
-  RETURNS(!(l > r));
+  _RETURNS(!(l > r));
   friend constexpr bool
   operator>=(index_iterator const& l, sentinel const& r)
-  RETURNS(!(l < r));
+  _RETURNS(!(l < r));
 };
 
 template <typename Iterator, typename Sentinel> 
@@ -843,13 +565,13 @@ private:
 
 public:
   constexpr iterator_sentinel_range(Iterator first, Sentinel last) noexcept
-    : first_(MV(first)), last_(MV(last))
+    : first_(_MV(first)), last_(_MV(last))
   {}
 
-  Iterator constexpr begin() const RETURNS(first_);
-  Sentinel constexpr end()   const RETURNS(last_);
+  Iterator constexpr begin() const _RETURNS(first_);
+  Sentinel constexpr end()   const _RETURNS(last_);
 
-  auto size() const RETURNS(last_ - first_);
+  auto size() const _RETURNS(last_ - first_);
 };
 
 // Python style `xrange`.
@@ -865,7 +587,7 @@ auto constexpr xrange(Integral last)
 
 template <typename T, typename... Sizes>
 auto constexpr make_index_array(Sizes&&... sizes)
-RETURNS(std::array<T, sizeof...(Sizes)>{FWD(sizes)...});
+_RETURNS(std::array<T, sizeof...(Sizes)>{_FWD(sizes)...});
 
 template <uint64_t N>
 std::ostream& operator<<(std::ostream& os, std::array<int32_t, N> const& a)
@@ -906,7 +628,7 @@ T constexpr transform_reduce(
 )
 {
   while (first != last)
-    init = reduce_op(MV(init), transform_op(*first++));
+    init = reduce_op(_MV(init), transform_op(*first++));
   return init;
 }
 template <
@@ -922,7 +644,7 @@ auto constexpr transform_reduce_r(
 )
 {
   return transform_reduce(
-    r.begin(), r.end(), FWD(init), FWD(reduce_op), FWD(transform_op)
+    r.begin(), r.end(), _FWD(init), _FWD(reduce_op), _FWD(transform_op)
   ); 
 }
 
@@ -941,7 +663,7 @@ T constexpr transform_reduce(
 )
 {
   while (first0 != last0)
-    init = reduce_op(MV(init), transform_op(*first0++, *first1++));
+    init = reduce_op(_MV(init), transform_op(*first0++, *first1++));
   return init;
 }
 template <
@@ -957,7 +679,7 @@ auto constexpr transform_reduce_r(
 )
 {
   return transform_reduce(
-    r0.begin(), r0.end(), r1.begin(), FWD(init), FWD(reduce_op), FWD(transform_op)
+    r0.begin(), r0.end(), r1.begin(), _FWD(init), _FWD(reduce_op), _FWD(transform_op)
   ); 
 }
 
@@ -973,24 +695,24 @@ T constexpr reduce(
 )
 {
   for (; first != last; ++first) 
-    init = reduce_op(MV(init), *first);
+    init = reduce_op(_MV(init), *first);
   return init;
 }
 template <typename Range, typename T, typename ReduceOperation>
 auto constexpr reduce_r(Range&& r, T&& init, ReduceOperation&& reduce_op)
 {
-  return reduce(r.begin(), r.end(), FWD(init), FWD(reduce_op));
+  return reduce(r.begin(), r.end(), _FWD(init), _FWD(reduce_op));
 }
 
 template <typename InputItBegin, typename InputItEnd, typename T>
 auto constexpr reduce(InputItBegin first, InputItEnd last, T init)
 {
-  return reduce(first, last, FWD(init), std::plus<>());
+  return reduce(first, last, _FWD(init), std::plus<>());
 }
 template <typename Range, typename T>
 auto constexpr reduce_r(Range&& r, T&& init)
 {
-  return reduce(r.begin(), r.end(), FWD(init));
+  return reduce(r.begin(), r.end(), _FWD(init));
 }
 
 template <typename InputItBegin, typename InputItEnd>
@@ -1067,7 +789,7 @@ split(std::string const& str, std::string const& delim)
     pos = str.find(delim, prev);
     if (pos == std::string::npos) pos = str.length();
     std::string token = str.substr(prev, pos - prev);
-    if (!token.empty()) tokens.emplace_back(MV(token));
+    if (!token.empty()) tokens.emplace_back(_MV(token));
     prev = pos + delim.length();
   }
   while (pos < str.length() && prev < str.length());
@@ -1092,7 +814,7 @@ auto split(
     pos = str.find(delim, prev);
     if (pos == std::string::npos) pos = str.length();
     std::string token = str.substr(prev, pos - prev);
-    if (!token.empty()) tokens.emplace_back(transform_op(MV(token)));
+    if (!token.empty()) tokens.emplace_back(transform_op(_MV(token)));
     prev = pos + delim.length();
   }
   while (pos < str.length() && prev < str.length());
@@ -1138,7 +860,7 @@ public:
   constexpr squared_difference(squared_difference const& rhs) = default;
   constexpr squared_difference(squared_difference&& rhs)      = default;
 
-  T constexpr operator()(T x) const RETURNS((x - average_) * (x - average_));
+  T constexpr operator()(T x) const _RETURNS((x - average_) * (x - average_));
 };
 
 template <typename T>
@@ -1148,11 +870,11 @@ struct value_and_count final
   int32_t count;
 
   constexpr value_and_count(T value_) 
-    : value(MV(value_)), count(1)
+    : value(_MV(value_)), count(1)
   {}
 
   constexpr value_and_count(T value_, int32_t count_)
-    : value(MV(value_)), count(count_)
+    : value(_MV(value_)), count(count_)
   {}
 
   constexpr value_and_count(value_and_count const& rhs) = default;
@@ -1163,7 +885,7 @@ struct value_and_count final
 
   constexpr value_and_count& operator=(T value_)
   {
-    value = MV(value_);
+    value = _MV(value_);
     count = 1;
     return *this;
   }
@@ -1181,20 +903,20 @@ public:
   constexpr counting_op(counting_op const& rhs) = default;
   constexpr counting_op(counting_op&& rhs)      = default;
 
-  constexpr counting_op(ReduceOp reduce) : reduce_(MV(reduce)) {}
+  constexpr counting_op(ReduceOp reduce) : reduce_(_MV(reduce)) {}
 
   constexpr value_and_count<T>
   operator()(value_and_count<T> x, T y) const
   {
-    return value_and_count<T>(reduce_(MV(x.value), MV(y)), MV(x.count) + 1);
+    return value_and_count<T>(reduce_(_MV(x.value), _MV(y)), _MV(x.count) + 1);
   }
 
   constexpr value_and_count<T> 
   operator()(value_and_count<T> x, value_and_count<T> y) const
   {
     return value_and_count<T>(
-      reduce_(MV(x.value), MV(y.value))
-    , MV(x.count) + MV(y.count)
+      reduce_(_MV(x.value), _MV(y.value))
+    , _MV(x.count) + _MV(y.count)
     );
   }
 };
@@ -1283,7 +1005,7 @@ T constexpr uncertainty_additive(
 //
 template <typename T>
 T constexpr uncertainty_absolute_to_relative(T const& A, T const& A_abs_unc)
-RETURNS(A_abs_unc / A);
+_RETURNS(A_abs_unc / A);
 
 // Given an uncertain value `A` and its relative uncertainty `+/- A * A_rel_unc`,
 // compute its absolute uncertainty:
@@ -1292,7 +1014,7 @@ RETURNS(A_abs_unc / A);
 //
 template <typename T>
 T constexpr uncertainty_relative_to_absolute(T const& A, T const& A_rel_unc)
-RETURNS(A_rel_unc * A);
+_RETURNS(A_rel_unc * A);
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -1372,7 +1094,7 @@ private:
 public:
   uncertain_value(std::string const& name) : name_(name) {}
 
-  std::string const& name() const RETURNS(name_);
+  std::string const& name() const _RETURNS(name_);
 
   value_type constexpr value() const
   {
@@ -1405,7 +1127,7 @@ public:
 template <typename T, typename Derived>
 std::ostream&
 operator<<(std::ostream& os, uncertain_value<T, Derived> const& uc)
-RETURNS(
+_RETURNS(
   os        << uc.name()
      << "," << uc.value()
      << "," << uc.absolute_uncertainty()
@@ -1427,18 +1149,18 @@ struct arithmetic_mean_model final
 
   constexpr arithmetic_mean_model(std::string const& name_, T average_, T stdev_)
     : base_type(name_)
-    , average(MV(average_))
-    , stdev(MV(stdev_))
+    , average(_MV(average_))
+    , stdev(_MV(stdev_))
   {}
 
   base_type&       base()       noexcept { return *this; }
   base_type const& base() const noexcept { return *this; }
 
   value_type constexpr value_unrounded() const
-  RETURNS(average);
+  _RETURNS(average);
 
   value_type constexpr absolute_uncertainty_unrounded() const 
-  RETURNS(stdev);
+  _RETURNS(stdev);
 
   value_type constexpr relative_uncertainty_unrounded() const
   {
@@ -1452,7 +1174,7 @@ template <typename T>
 auto constexpr make_arithmetic_mean_model(
   std::string const& name, T average, T stdev
 )
-RETURNS(arithmetic_mean_model<T>(name, MV(average), MV(stdev)));
+_RETURNS(arithmetic_mean_model<T>(name, _MV(average), _MV(stdev)));
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -1488,15 +1210,15 @@ struct ordinary_least_squares_estimator_no_intercept_model final
       std::string const& name_, T slope_, T r_squared_
     )
     : base_type(name_)
-    , slope(MV(slope_))
-    , r_squared(MV(r_squared_))
+    , slope(_MV(slope_))
+    , r_squared(_MV(r_squared_))
   {}
 
   base_type&       base()       noexcept { return *this; }
   base_type const& base() const noexcept { return *this; }
 
   value_type constexpr value_unrounded() const
-  RETURNS(slope);
+  _RETURNS(slope);
 
   value_type constexpr absolute_uncertainty_unrounded() const noexcept
   {
@@ -1506,15 +1228,15 @@ struct ordinary_least_squares_estimator_no_intercept_model final
   }
 
   value_type constexpr relative_uncertainty_unrounded() const
-  RETURNS(1.0 - r_squared);
+  _RETURNS(1.0 - r_squared);
 };
 
 template <typename T>
 auto constexpr make_ordinary_least_squares_estimator_no_intercept_model(
   std::string const& name, T slope, T r_squared
 )
-RETURNS(ordinary_least_squares_estimator_no_intercept_model<T>(
-  name, MV(slope), MV(r_squared))
+_RETURNS(ordinary_least_squares_estimator_no_intercept_model<T>(
+  name, _MV(slope), _MV(r_squared))
 );
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1626,7 +1348,7 @@ auto constexpr ordinary_least_squares_estimator_no_intercept(
 )
 {
   return ordinary_least_squares_estimator_no_intercept(
-    name, FWD(x), FWD(y), double(0.0), double(0.0)
+    name, _FWD(x), _FWD(y), double(0.0), double(0.0)
   );
 }
 
@@ -1657,22 +1379,22 @@ struct experiment_result final
     , int32_t            dependencies_per_operation_
     )
     : base_type(name_)
-    , average_time(MV(average_time_))
-    , stdev_time(MV(stdev_time_))
-    , warmups_per_kernel(MV(warmups_per_kernel_))
-    , samples_per_kernel(MV(samples_per_kernel_))
-    , kernels_per_operation(MV(kernels_per_operation_))
-    , dependencies_per_operation(MV(dependencies_per_operation_))
+    , average_time(_MV(average_time_))
+    , stdev_time(_MV(stdev_time_))
+    , warmups_per_kernel(_MV(warmups_per_kernel_))
+    , samples_per_kernel(_MV(samples_per_kernel_))
+    , kernels_per_operation(_MV(kernels_per_operation_))
+    , dependencies_per_operation(_MV(dependencies_per_operation_))
   {}
 
   base_type&       base()       noexcept { return *this; }
   base_type const& base() const noexcept { return *this; }
 
   value_type constexpr value_unrounded() const
-  RETURNS(average_time);
+  _RETURNS(average_time);
 
   value_type constexpr absolute_uncertainty_unrounded() const
-  RETURNS(stdev_time);
+  _RETURNS(stdev_time);
 
   value_type constexpr relative_uncertainty_unrounded() const noexcept
   {
@@ -1682,7 +1404,7 @@ struct experiment_result final
   }
 
   int32_t size() const
-  RETURNS(kernels_per_operation);
+  _RETURNS(kernels_per_operation);
 };
 
 template <typename T>
@@ -1709,12 +1431,12 @@ auto constexpr make_experiment_result(
 {
   return experiment_result<T>(
       name
-    , MV(average_time)
-    , MV(stdev_time)
-    , MV(warmups_per_kernel)
-    , MV(samples_per_kernel)
-    , MV(kernels_per_operation)
-    , MV(dependencies_per_operation)
+    , _MV(average_time)
+    , _MV(stdev_time)
+    , _MV(warmups_per_kernel)
+    , _MV(samples_per_kernel)
+    , _MV(kernels_per_operation)
+    , _MV(dependencies_per_operation)
   );
 }
 
@@ -1788,11 +1510,11 @@ auto experiment(
 {
   return experiment(
     name
-  , MV(warmups_per_kernel)
-  , MV(samples_per_kernel)
-  , MV(kernels_per_operation)
-  , MV(dependencies_per_operation)
-  , FWD(test)
+  , _MV(warmups_per_kernel)
+  , _MV(samples_per_kernel)
+  , _MV(kernels_per_operation)
+  , _MV(dependencies_per_operation)
+  , _FWD(test)
   , [] {}
   );
 }
@@ -1818,7 +1540,7 @@ cuda_launch_shape cuda_compute_occupancy(cuda_function& f)
   int32_t grid_size  = 0;
   int32_t block_size = 0;
 
-  THROW_ON_CUDA_DRV_ERROR(
+  CUDA_THROW_ON_ERROR(
     cuOccupancyMaxPotentialBlockSize(
       &grid_size, &block_size, f.get(), 0, 0, 0
     )
@@ -1832,7 +1554,7 @@ cuda_launch_shape cuda_compute_occupancy(cuda_function& f, int32_t input_size)
   int32_t min_grid_size = 0;
   int32_t block_size    = 0;
 
-  THROW_ON_CUDA_DRV_ERROR(
+  CUDA_THROW_ON_ERROR(
     cuOccupancyMaxPotentialBlockSize(
       &min_grid_size, &block_size, f.get(), 0, 0, 0
     )
@@ -1876,7 +1598,7 @@ auto graph_compile_linearly_dependent(
   // NOTE: We're not using range-based for and `xrange` here due to a GCC ICE.
   for (int32_t i = 0; i < kernels_per_graph; ++i)
   {
-    THROW_ON_CUDA_DRV_ERROR(cuGraphAddKernelNode(
+    CUDA_THROW_ON_ERROR(cuGraphAddKernelNode(
       &next, graph.get(), &prev, prev != nullptr, &desc
     ));
 
@@ -1915,7 +1637,7 @@ auto graph_compile_independent(
   {
     CUgraphNode_st* node = nullptr;
 
-    THROW_ON_CUDA_DRV_ERROR(cuGraphAddKernelNode(
+    CUDA_THROW_ON_ERROR(cuGraphAddKernelNode(
       &node, graph.get(), nullptr, 0, &desc
     ));
   }
@@ -2397,7 +2119,7 @@ void graph_add_edges(
 {
   for (auto&& e : edges)
   {
-    THROW_ON_CUDA_DRV_ERROR(cuGraphAddDependencies(
+    CUDA_THROW_ON_ERROR(cuGraphAddDependencies(
       graph.get(), &vertices[e.from], &vertices[e.to], 1
     ));
   }
@@ -2435,7 +2157,7 @@ auto graph_compile_from_edges(
   // NOTE: We're not using range-based for and `xrange` here due to a GCC ICE.
   for (int32_t i = 0; i < kernels_per_graph; ++i)
   {
-    THROW_ON_CUDA_DRV_ERROR(cuGraphAddKernelNode(
+    CUDA_THROW_ON_ERROR(cuGraphAddKernelNode(
       &vertices[i], graph.get(), nullptr, 0, &desc
     ));
   }
@@ -2458,7 +2180,7 @@ void traditional_launch(
 )
 {
   void* args_ptrs[] = { std::addressof(args)... };
-  THROW_ON_CUDA_DRV_ERROR(cuLaunchKernel(
+  CUDA_THROW_ON_ERROR(cuLaunchKernel(
     f.get()
   , shape.grid_size,  1, 1
   , shape.block_size, 1, 1
@@ -2468,7 +2190,7 @@ void traditional_launch(
 
 inline void graph_launch(cuda_stream& stream, cuda_compiled_graph& cgraph)
 {
-  THROW_ON_CUDA_DRV_ERROR(cuGraphLaunch(cgraph.get(), stream.get()));
+  CUDA_THROW_ON_ERROR(cuGraphLaunch(cgraph.get(), stream.get()));
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -2741,7 +2463,7 @@ auto constexpr get_positive_integral_option(
   auto const convert_f = [] (std::string const& value)
                          { return from_string<T>(value); };
 
-  T const value = clp(key, convert_f, FWD(default_f));
+  T const value = clp(key, convert_f, _FWD(default_f));
 
   if (0 > value)
     throw negative_integral_option_value_is_invalid(key, value);
@@ -3146,7 +2868,7 @@ int main(int argc, char** argv)
         {
           module = cuda_module(binary_path + "/kernels");
         }
-        catch (cuda_drv_exception& e) 
+        catch (cuda::driver_exception& e) 
         {
           if (CUDA_ERROR_FILE_NOT_FOUND != e.code())
             // Some other problem occurred, rethrow to report it.
@@ -3215,8 +2937,8 @@ int main(int argc, char** argv)
   auto const inline_harness
     = [&] (auto&& f, auto&& reporter)
       {
-        auto const result = FWD(f)();
-        FWD(reporter)(result);
+        auto const result = _FWD(f)();
+        _FWD(reporter)(result);
         return result;
       };
 
@@ -3224,8 +2946,8 @@ int main(int argc, char** argv)
     = [&] (auto&& f, auto&& reporter)
       {
         cuda_stream stream;
-        auto const result = FWD(f)(stream);
-        FWD(reporter)(result);
+        auto const result = _FWD(f)(stream);
+        _FWD(reporter)(result);
         stream.wait();
         return result;
       };
@@ -3234,8 +2956,8 @@ int main(int argc, char** argv)
     = [&] (auto&& f, auto&& reporter, int32_t streams)
       {
         cuda_stream_pool pool(streams);
-        auto const result = FWD(f)(pool);
-        FWD(reporter)(result);
+        auto const result = _FWD(f)(pool);
+        _FWD(reporter)(result);
         pool.wait();
         return result;
       };
@@ -3243,9 +2965,9 @@ int main(int argc, char** argv)
   auto const arithmetic_mean_harness
     = [&] (auto&& f, auto&& reporter)
       {
-        auto const result = FWD(f)();
+        auto const result = _FWD(f)();
         auto const mean = arithmetic_mean(result, result.size());
-        FWD(reporter)(mean);
+        _FWD(reporter)(mean);
         return mean;
       };
 
@@ -3256,14 +2978,14 @@ int main(int argc, char** argv)
       results.reserve(graph_sizes.size());
 
       for (auto kernels_per_graph : graph_sizes)
-        results.emplace_back(FWD(f)(kernels_per_graph));
+        results.emplace_back(_FWD(f)(kernels_per_graph));
 
       auto const model = ordinary_least_squares_estimator_no_intercept(
         results.front().name()
       , graph_sizes, results
       );
 
-      FWD(reporter)(model);
+      _FWD(reporter)(model);
 
       return model;
     };
@@ -3305,7 +3027,7 @@ int main(int argc, char** argv)
             , kernels_per_graph       // Kernels per operation.
             , (kernels_per_graph - 1) // Dependencies per operation.
             , [&] {
-                cg = MV(graph_compile_linearly_dependent(
+                cg = _MV(graph_compile_linearly_dependent(
                   noop, noop_shape, kernels_per_graph
                 ));
               }
@@ -3378,7 +3100,7 @@ int main(int argc, char** argv)
             , kernels_per_graph       // Kernels per operation.
             , (kernels_per_graph - 1) // Dependencies per operation.
             , [&] {
-                cg = MV(graph_compile_independent(
+                cg = _MV(graph_compile_independent(
                   noop, noop_shape, kernels_per_graph
                 ));
               }
@@ -3444,7 +3166,7 @@ int main(int argc, char** argv)
               , A.nx()       // Kernels per operation.
               , edges.size() // Dependencies per operation.
               , [&] {
-                  cg = MV(graph_compile_from_edges(
+                  cg = _MV(graph_compile_from_edges(
                     noop, noop_shape, A.nx(), edges
                   ));
                 }
@@ -3485,6 +3207,6 @@ int main(int argc, char** argv)
     }
   }
 
-  THROW_ON_CUDA_DRV_ERROR(cuCtxSynchronize());
+  CUDA_THROW_ON_ERROR(cuCtxSynchronize());
 }
 
