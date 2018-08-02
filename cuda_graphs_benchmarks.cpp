@@ -2896,7 +2896,9 @@ int main(int argc, char** argv)
 
   bool const header = !clp.has("no-header");
 
-  output_types const output_type = clp(
+  // NOTE: This should be `const`, but QNX 7.0's GCC 5.4 complains when some
+  // lambdas capture it later if it's `const`.
+  output_types output_type = clp(
     "output-type"
   , [] (std::string const& value)
     {
