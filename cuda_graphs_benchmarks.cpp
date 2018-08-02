@@ -119,6 +119,7 @@ Testing
 #include <iterator>
 #include <algorithm>
 #include <numeric>
+#include <array>
 #include <vector>
 #include <map>
 #include <string>
