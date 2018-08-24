@@ -1,7 +1,3 @@
-The number of strictly upper (or lower) triangular square matrices of size 6 is 32768
-
-The number of DAGs with 6 labeled vertices is 5051
-
 0,0,0,0,0,0
 0,0,0,0,0,0
 0,0,0,0,0,0
@@ -35358,4 +35354,3 @@ The number of DAGs with 6 labeled vertices is 5051
 0,0,0,0,1,1
 0,0,0,0,0,1
 0,0,0,0,0,0
-
