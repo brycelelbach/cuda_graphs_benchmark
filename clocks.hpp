@@ -63,8 +63,8 @@ struct cuda_globaltimer_clocksource
   }
 };
 
-// Performs approximately 'expected_' duration of artificial work.
-// Returns: The duration of of work performed.
+// Performs approximately 'expected' duration of artificial work.
+// Returns: The duration of the work performed.
 template <typename Clocksource>
 __host__ __device__
 auto payload(typename Clocksource::rep expected)
