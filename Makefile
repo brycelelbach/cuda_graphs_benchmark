@@ -117,7 +117,7 @@ DEVICE_CUDA_CXX_TARGETS = $(DEVICE_CUDA_CXX_SOURCES:.cu=)
 ###############################################################################
 
 IGNORE := $(call PRINT_CONFIG,"///////////////////////////////////////////////////////////////////////////////")
-IGNORE := $(call PRINT_CONFIG,"// Computed variables")
+IGNORE := $(call PRINT_CONFIG,"// Computed Variables")
 IGNORE := $(call PRINT_CONFIG,"///////////////////////////////////////////////////////////////////////////////")
 IGNORE := $(call PRINT_CONFIG,"// ROOT                    : $(ROOT)")
 IGNORE := $(call PRINT_CONFIG,"// BUILD_DIRECTORY         : $(BUILD_DIRECTORY)")
