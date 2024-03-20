@@ -428,7 +428,7 @@ public:
     CUgraphExec_st* graph;
     CUgraphNode n;
     CUDA_THROW_ON_ERROR(
-      cuGraphInstantiate(&graph, template_.get(), nullptr, nullptr, 0)
+      cuGraphInstantiate(&graph, template_.get(), 0)
     );
     ptr_.reset(graph);
   }
@@ -449,18 +449,7 @@ public:
 ///////////////////////////////////////////////////////////////////////////////
 
 template <typename T>
-struct index_iterator final : std::iterator<
-  // iterator_category
-  std::random_access_iterator_tag
-  // value_type
-, std::remove_cv_t<std::remove_reference_t<T>>
-  // difference_type
-, decltype(std::declval<T>() - std::declval<T>())
-  // pointer
-, std::add_pointer_t<std::remove_cv_t<std::remove_reference_t<T>>>
-  // reference
-, std::remove_cv_t<std::remove_reference_t<T>>
->
+struct index_iterator final
 {
   using iterator_category = std::random_access_iterator_tag;
   using value_type        = std::remove_cv_t<std::remove_reference_t<T>>;
@@ -477,7 +466,7 @@ public:
     T const last;
 
     constexpr sentinel(T last_) : last(_MV(last_)) {}
-  }; 
+  };
 
   constexpr index_iterator(T current) : current_(_MV(current)) {}
 
@@ -537,31 +526,31 @@ public:
 
   // RandomAccessIterator requirements
 
-  friend constexpr index_iterator& operator+=(index_iterator& l, T const& r) 
+  friend constexpr index_iterator& operator+=(index_iterator& l, T const& r)
   {
     l.current_ += r;
     return l;
   }
 
-  friend constexpr index_iterator operator+(T const& l, index_iterator r) 
+  friend constexpr index_iterator operator+(T const& l, index_iterator r)
   _RETURNS(r += l);
-  friend constexpr index_iterator operator+(index_iterator l, T const& r) 
+  friend constexpr index_iterator operator+(index_iterator l, T const& r)
   _RETURNS(l += r);
 
-  friend constexpr index_iterator& operator-=(index_iterator& l, T const& r) 
+  friend constexpr index_iterator& operator-=(index_iterator& l, T const& r)
   _RETURNS(l += -r);
 
-  friend constexpr index_iterator operator-(index_iterator l, T const& r) 
+  friend constexpr index_iterator operator-(index_iterator l, T const& r)
   _RETURNS(l -= r);
 
   friend constexpr auto
-  operator-(index_iterator const& l, index_iterator const& r) 
+  operator-(index_iterator const& l, index_iterator const& r)
   _RETURNS(l.current_ - r.current_);
   friend constexpr auto
-  operator-(sentinel const& l,       index_iterator const& r) 
+  operator-(sentinel const& l,       index_iterator const& r)
   _RETURNS(l.last     - r.current_);
   friend constexpr auto
-  operator-(index_iterator const& l, sentinel const& r) 
+  operator-(index_iterator const& l, sentinel const& r)
   _RETURNS(l.current_ - r.last);
 
   constexpr auto operator[](T n) _RETURNS(current_ + _MV(n));
@@ -606,7 +595,7 @@ public:
   _RETURNS(!(l < r));
 };
 
-template <typename Iterator, typename Sentinel> 
+template <typename Iterator, typename Sentinel>
 struct iterator_sentinel_range final
 {
 private:
@@ -695,7 +684,7 @@ auto constexpr transform_reduce_r(
 {
   return transform_reduce(
     r.begin(), r.end(), _FWD(init), _FWD(reduce_op), _FWD(transform_op)
-  ); 
+  );
 }
 
 template <
@@ -730,7 +719,7 @@ auto constexpr transform_reduce_r(
 {
   return transform_reduce(
     r0.begin(), r0.end(), r1.begin(), _FWD(init), _FWD(reduce_op), _FWD(transform_op)
-  ); 
+  );
 }
 
 template <
@@ -744,7 +733,7 @@ T constexpr reduce(
 , ReduceOperation reduce_op
 )
 {
-  for (; first != last; ++first) 
+  for (; first != last; ++first)
     init = reduce_op(_MV(init), *first);
   return init;
 }
@@ -904,7 +893,7 @@ private:
   T const average_;
 
 public:
-  constexpr squared_difference(T average) 
+  constexpr squared_difference(T average)
     : average_(average) {}
 
   constexpr squared_difference(squared_difference const& rhs) = default;
@@ -919,7 +908,7 @@ struct value_and_count final
   T       value;
   int32_t count;
 
-  constexpr value_and_count(T value_) 
+  constexpr value_and_count(T value_)
     : value(_MV(value_)), count(1)
   {}
 
@@ -961,7 +950,7 @@ public:
     return value_and_count<T>(reduce_(_MV(x.value), _MV(y)), _MV(x.count) + 1);
   }
 
-  constexpr value_and_count<T> 
+  constexpr value_and_count<T>
   operator()(value_and_count<T> x, value_and_count<T> y) const
   {
     return value_and_count<T>(
@@ -1106,8 +1095,8 @@ concept UncertainValue
   // Returns: The uncertain value rounded to its significant digit or the
   // significant digit of the absolute uncertainty if it is higher.
   value_type value() const;
-  operator value_type() const { return value(); } 
- 
+  operator value_type() const { return value(); }
+
   // Returns: The absolute uncertanity rounded to its significant digit or the
   // significant of the uncertain value if it is higher.
   value_type absolute_uncertainty() const;
@@ -1155,7 +1144,7 @@ public:
     return round_to_precision(derived().value_unrounded(), precision);
   }
 
-  constexpr operator value_type() const { return derived().value(); } 
+  constexpr operator value_type() const { return derived().value(); }
 
   value_type constexpr absolute_uncertainty() const
   {
@@ -1168,7 +1157,7 @@ public:
     );
   }
 
-  value_type constexpr relative_uncertainty() const 
+  value_type constexpr relative_uncertainty() const
   {
     return round_to_precision(derived().relative_uncertainty_unrounded());
   }
@@ -1209,7 +1198,7 @@ struct arithmetic_mean_model final
   value_type constexpr value_unrounded() const
   _RETURNS(average);
 
-  value_type constexpr absolute_uncertainty_unrounded() const 
+  value_type constexpr absolute_uncertainty_unrounded() const
   _RETURNS(stdev);
 
   value_type constexpr relative_uncertainty_unrounded() const
@@ -1291,7 +1280,7 @@ _RETURNS(ordinary_least_squares_estimator_no_intercept_model<T>(
 
 ///////////////////////////////////////////////////////////////////////////////
 
-/// \brief Computes a linear regression of \a y vs \a x with an origin of 
+/// \brief Computes a linear regression of \a y vs \a x with an origin of
 ///        \a (x_origin, y_origin) with no intercept term and no variance in
 ///        \a x via ordinary least squares.
 ///
@@ -1303,7 +1292,7 @@ _RETURNS(ordinary_least_squares_estimator_no_intercept_model<T>(
 template <typename IndependentValues, typename DependentValues, typename T>
 auto constexpr ordinary_least_squares_estimator_no_intercept(
   std::string const&  name
-, IndependentValues&& x 
+, IndependentValues&& x
 , DependentValues&&   y
 , T x_origin
 , T y_origin
@@ -1346,7 +1335,7 @@ auto constexpr ordinary_least_squares_estimator_no_intercept(
   // with no intercept:
   //
   //   https://en.wikipedia.org/wiki/Simple_ordinary_least_squares#Simple_ordinary_least_squares_without_the_intercept_term_(single_regressor)
-  // 
+  //
   // TODO: Replace with a proper reference.
 
   // slope = avg((x - x_origin) * (y - y_origin))
@@ -1359,7 +1348,7 @@ auto constexpr ordinary_least_squares_estimator_no_intercept(
   // Formula for the coefficient of determination for linear regression models:
   //
   //   http://www.statisticshowto.com/probability-and-statistics/coefficient-of-determination-r-squared/
-  // 
+  //
   // TODO: Replace with a proper reference.
 
   // r = (sum(x * y) - avg(x) * avg(y))
@@ -1381,7 +1370,7 @@ auto constexpr ordinary_least_squares_estimator_no_intercept(
   );
 }
 
-/// \brief Computes a linear regression of \a y vs \a x with an origin of 
+/// \brief Computes a linear regression of \a y vs \a x with an origin of
 ///        \a (0.0, 0.0) with no intercept term and no variance in a x via
 ///        ordinary least squares.
 ///
@@ -1393,7 +1382,7 @@ auto constexpr ordinary_least_squares_estimator_no_intercept(
 template <typename IndependentValues, typename DependentValues>
 auto constexpr ordinary_least_squares_estimator_no_intercept(
   std::string const&  name
-, IndependentValues&& x 
+, IndependentValues&& x
 , DependentValues&&   y
 )
 {
@@ -1545,7 +1534,7 @@ auto experiment(
 
   for (int32_t i = 0; i < samples_per_operation; ++i)
     times.emplace_back(_MV(diff_time(_MV(start_times[i]), _MV(end_times[i]))));
- 
+
   double const average_time
     = arithmetic_mean(times.begin(), times.end());
 
@@ -1637,7 +1626,7 @@ cuda_launch_shape cuda_compute_occupancy(cuda_function& f)
     cuOccupancyMaxPotentialBlockSize(
       &grid_size, &block_size, f.get(), 0, 0, 0
     )
-  ); 
+  );
 
   return cuda_launch_shape(grid_size, block_size);
 }
@@ -1651,7 +1640,7 @@ cuda_launch_shape cuda_compute_occupancy(cuda_function& f, int32_t input_size)
     cuOccupancyMaxPotentialBlockSize(
       &min_grid_size, &block_size, f.get(), 0, 0, 0
     )
-  ); 
+  );
 
   // Round up based on input size.
   int32_t const grid_size = (input_size + block_size - 1) / block_size;
@@ -1684,12 +1673,12 @@ constexpr auto args_tuple_to_void_ptr_array(std::tuple<Args...>& args)
 
 ///////////////////////////////////////////////////////////////////////////////
 
-template <size_t N> 
+template <size_t N>
 auto graph_compile_linearly_dependent(
   std::array<CUfunc_st*, N>        fs
 , std::array<cuda_launch_shape, N> shapes
 , std::array<int32_t, N>           kernels_per_graph_per_f
-, std::array<void**, N>            args_per_f                            
+, std::array<void**, N>            args_per_f
 )
 {
   cuda_graph graph;
@@ -1722,10 +1711,10 @@ auto graph_compile_linearly_dependent(
     }
   }
 
-  return cuda_compiled_graph(graph); 
+  return cuda_compiled_graph(graph);
 }
 
-template <typename... Args> 
+template <typename... Args>
 auto graph_compile_linearly_dependent(
   cuda_function&    f
 , cuda_launch_shape shape
@@ -1748,7 +1737,7 @@ auto graph_compile_linearly_dependent(
   );
 }
 
-template <typename Args0, typename Args1> 
+template <typename Args0, typename Args1>
 auto graph_compile_linearly_dependent_two_kernels(
   cuda_function&    f0
 , cuda_launch_shape shape0
@@ -1776,7 +1765,7 @@ auto graph_compile_linearly_dependent_two_kernels(
   );
 }
 
-template <typename... Args> 
+template <typename... Args>
 auto graph_compile_independent(
   cuda_function&    f
 , cuda_launch_shape shape
@@ -1810,7 +1799,7 @@ auto graph_compile_independent(
     ));
   }
 
-  return cuda_compiled_graph(graph); 
+  return cuda_compiled_graph(graph);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1876,7 +1865,7 @@ public:
 
   constexpr index_type span() const noexcept
   {
-      return (nx_ * ny_) + stride_x() * px_ + stride_y() * py_; 
+      return (nx_ * ny_) + stride_x() * px_ + stride_y() * py_;
   }
 };
 
@@ -1937,7 +1926,7 @@ public:
 
   constexpr index_type span() const noexcept
   {
-      return (nx_ * ny_) + stride_x() * px_ + stride_y() * py_;  
+      return (nx_ * ny_) + stride_x() * px_ + stride_y() * py_;
   }
 };
 
@@ -1960,13 +1949,13 @@ private:
 public:
   constexpr vector2d() noexcept : layout_(), data_() {}
 
-  vector2d(index_type nx, index_type ny) 
+  vector2d(index_type nx, index_type ny)
     : layout_(), data_()
   {
     resize(nx, ny);
   }
 
-  vector2d(index_type nx, index_type ny, index_type px, index_type py) 
+  vector2d(index_type nx, index_type ny, index_type px, index_type py)
     : layout_(), data_()
   {
     resize(nx, ny, px, py);
@@ -2247,7 +2236,7 @@ std::vector<adjacency_matrix> adjacency_matrices_from_file(
 
 struct edge final
 {
-  int32_t from; 
+  int32_t from;
   int32_t to;
 
   constexpr edge()
@@ -2293,7 +2282,7 @@ void graph_add_edges(
   }
 }
 
-template <typename... Args> 
+template <typename... Args>
 auto graph_compile_from_edges(
   cuda_function&           f
 , cuda_launch_shape        shape
@@ -2334,12 +2323,12 @@ auto graph_compile_from_edges(
 
   graph_add_edges(graph, edges, vertices);
 
-  return cuda_compiled_graph(graph); 
+  return cuda_compiled_graph(graph);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-template <typename Streamish, typename... Args> 
+template <typename Streamish, typename... Args>
 void stream_launch(
   Streamish& streamish
 , cuda_function& f
@@ -2489,7 +2478,7 @@ struct command_line_processor
 
   command_line_processor(int argc, char** argv)
     : pos_args(), kw_args()
-  { 
+  {
     for (int i = 1; i < argc; ++i)
     {
       std::string arg(argv[i]);
@@ -2646,7 +2635,7 @@ enum output_types
   invalid_output_type
 , pretty_models
 , csv_models
-, csv_data 
+, csv_data
 };
 
 inline std::ostream&
@@ -2685,30 +2674,20 @@ int main(int argc, char** argv)
   int32_t constexpr
      default_stream_launch_warmups_per_kernel_divisor                 = 4;
 
-  int32_t constexpr
-    default_graph_device_side_overhead_samples_per_kernel_divisor     = 2;
-  int32_t constexpr
-    default_graph_device_side_overhead_warmups_per_kernel_divisor     = 4;
-
-  int32_t constexpr
-    default_stream_device_side_overhead_samples_per_kernel_multiplier = 1;
-  int32_t constexpr
-    default_stream_device_side_overhead_warmups_per_kernel_divisor    = 4;
-
-  auto constexpr default_compile_and_launch_graph_sizes =
+  auto constexpr default_host_overhead_graph_sizes =
     make_index_array<int32_t>(
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
-    , 32,   48,   64,   80,   96,   112,  128 
+    , 32,   48,   64,   80,   96,   112,  128
     , 256,  384,  512,  640,  768,  896,  1024
     , 2048, 3072, 4096, 5120, 6144, 7168, 8192
-    ); 
+    );
 
-  auto constexpr default_device_side_overhead_graph_sizes =
+  auto constexpr default_device_overhead_graph_sizes =
     make_index_array<int32_t>(
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
-    , 32,   48,   64,   80,   96,   112,  128 
+    , 32,   48,   64,   80,   96,   112,  128
     , 256,  384,  512,  640,  768,  896
-    ); 
+    );
 
   command_line_processor clp(argc, argv);
 
@@ -2773,44 +2752,21 @@ int main(int argc, char** argv)
     << "    Default: `--stream-launch-samples-per-kernel / "
        << default_stream_launch_warmups_per_kernel_divisor
        << "`."                                                         << endl
-    << "--graph-device-side-overhead-samples-per-kernel=INTEGRAL"      << endl
-    << "    The number of samples per kernel for graph device side"    << endl
-    << "    overhead experiments."                                     << endl
-    << "    Default: `--graph-compile-samples-per-kernel / "
-       << default_graph_device_side_overhead_samples_per_kernel_divisor
-       << "`."                                                         << endl
-    << "--graph-device-side-overhead-warmups-per-kernel=INTEGRAL"      << endl
-    << "    The number of warmup samples per kernel to perform "       << endl
-    << "    before device side overhead experiments."                  << endl
-    << "    Default: `--graph-device-side-overhead-samples-per-kernel / "
-       << default_graph_device_side_overhead_warmups_per_kernel_divisor        
-       << "`."                                                         << endl
-    << "--stream-device-side-overhead-samples-per-kernel=INTEGRAL"     << endl
-    << "    The number of samples per kernel for stream launch"        << endl
-    << "    experiments."                                              << endl
-    << "    Default: `--graph-device-side-overhead-samples-per-kernel * "
-       << default_stream_device_side_overhead_samples_per_kernel_multiplier
-       << "`."                                                         << endl
-    << "--stream-device-side-overhead-warmups-per-kernel=INTEGRAL"     << endl
-    << "    The number of warmup samples per kernel to perform "       << endl
-    << "    before stream device side overhead experiments."           << endl
-    << "    Default: `--sdevice-side-overhead-samples-per-kernel / "
-       << default_stream_device_side_overhead_warmups_per_kernel_divisor
-       << "`."                                                         << endl
-    << "--compile-and-launch-graph-sizes=LIST-OF-INTEGRALS"            << endl
+    << "--host-overhead-graph-sizes=LIST-OF-INTEGRALS"                 << endl
     << "    A comma separated list of different graph sizes (kernels"  << endl
-    << "    per graph) to run compilation and launch experiments on."  << endl
+    << "    per graph) to run host side overhead experiments on"       << endl
+    << "    (including compilation)."                                  << endl
     << "    Default: "
-       << default_compile_and_launch_graph_sizes
+       << default_host_overhead_graph_sizes
        << "."                                                          << endl
-    << "--device-side-overhead-graph-sizes=INTEGRAL"                   << endl
+    << "--device-overhead-graph-sizes=INTEGRAL"                        << endl
     << "    A comma separated list of different graph sizes (kernels"  << endl
     << "    per graph) to run device side overhead experiments on."    << endl
     << "    There are only 1024 GPFIFOs, so graphs sizes greater "     << endl
     << "    than 1024 will cause the host thread to block pending "    << endl
     << "    availability of a GPFIFO."                                 << endl
     << "    Default: "
-       << default_device_side_overhead_graph_sizes
+       << default_device_overhead_graph_sizes
        << "."                                                          << endl
     << "--adjacency-matrices=LIST-OF-FILENAMES"                        << endl
     << "    Construct and test graphs from the adjacency matrices "    << endl
@@ -2918,44 +2874,8 @@ int main(int argc, char** argv)
       }
     );
 
-  int32_t const graph_device_side_overhead_samples_per_kernel
-    = get_positive_integral_option(
-      clp, "graph-device-side-overhead-samples-per-kernel"
-    , [&] {
-        return graph_compile_samples_per_kernel
-             / default_graph_device_side_overhead_samples_per_kernel_divisor;
-      }
-    );
-
-  int32_t const graph_device_side_overhead_warmups_per_kernel
-    = get_positive_integral_option(
-      clp, "graph-device-side-overhead-warmups-per-kernel"
-    , [&] {
-        return graph_device_side_overhead_samples_per_kernel
-             / default_graph_device_side_overhead_warmups_per_kernel_divisor;
-      }
-    );
-
-  int32_t const stream_device_side_overhead_samples_per_kernel
-    = get_positive_integral_option(
-      clp, "stream-device-side-overhead-samples-per-kernel"
-    , [&] {
-        return graph_device_side_overhead_samples_per_kernel
-             * default_stream_device_side_overhead_samples_per_kernel_multiplier;
-      }
-    );
-
-  int32_t const stream_device_side_overhead_warmups_per_kernel
-    = get_positive_integral_option(
-      clp, "stream-device-side-overhead-warmups-per-kernel"
-    , [&] {
-        return stream_device_side_overhead_samples_per_kernel
-             / default_stream_device_side_overhead_warmups_per_kernel_divisor;
-      }
-    );
-
-  std::vector<int32_t> const compile_and_launch_graph_sizes = clp(
-    "compile-and-launch-graph-sizes"
+  std::vector<int32_t> const host_overhead_graph_sizes = clp(
+    "host-overhead-graph-sizes"
   , [&] (std::string const& value)
     {
       return split(
@@ -2968,7 +2888,7 @@ int main(int argc, char** argv)
           // that should be generalized.
           if (1 > result)
             throw option_value_is_invalid(
-              "compile-and-launch-graph-sizes", str
+              "host-overhead-graph-sizes", str
             , "because it must be greater than 1"
             );
 
@@ -2978,13 +2898,13 @@ int main(int argc, char** argv)
     }
   , [&] {
       return std::vector<int32_t>(
-        default_compile_and_launch_graph_sizes.begin()
-      , default_compile_and_launch_graph_sizes.end()
+        default_host_overhead_graph_sizes.begin()
+      , default_host_overhead_graph_sizes.end()
       );
     }
   );
 
-  auto const validate_compile_and_launch_graph_sizes
+  auto const validate_host_overhead_graph_sizes
     = [&] (
         char const* name
       , int32_t size
@@ -2998,7 +2918,7 @@ int main(int argc, char** argv)
 
         if (1 >= warmups_per_operation)
           throw option_value_is_invalid(
-            "compile-and-launch-graph-sizes", std::to_string(size)
+            "host-overhead-graph-sizes", std::to_string(size)
           , std::string("because the `--")
           + name
           + "-warmups-per-kernel` option value is too small - "
@@ -3007,7 +2927,7 @@ int main(int argc, char** argv)
 
         if (1 >= samples_per_operation)
           throw option_value_is_invalid(
-            "compile-and-launch-graph-sizes", std::to_string(size)
+            "host-overhead-graph-sizes", std::to_string(size)
           , std::string("because the `--")
           + name
           + "-samples-per-kernel` option value is too small - "
@@ -3015,23 +2935,23 @@ int main(int argc, char** argv)
           );
       };
 
-  for (int32_t size : compile_and_launch_graph_sizes)
+  for (int32_t size : host_overhead_graph_sizes)
   {
-    validate_compile_and_launch_graph_sizes(
+    validate_host_overhead_graph_sizes(
       "stream-launch"
     , size
     , stream_launch_warmups_per_kernel
     , stream_launch_samples_per_kernel
     );
 
-    validate_compile_and_launch_graph_sizes(
+    validate_host_overhead_graph_sizes(
       "graph-compile"
     , size
     , graph_compile_warmups_per_kernel
     , graph_compile_samples_per_kernel
     );
 
-    validate_compile_and_launch_graph_sizes(
+    validate_host_overhead_graph_sizes(
       "graph-launch"
     , size
     , graph_launch_warmups_per_kernel
@@ -3039,8 +2959,8 @@ int main(int argc, char** argv)
     );
   }
 
-  std::vector<int32_t> const device_side_overhead_graph_sizes = clp(
-    "device-side-overhead-graph-sizes"
+  std::vector<int32_t> const device_overhead_graph_sizes = clp(
+    "device-overhead-graph-sizes"
   , [&] (std::string const& value)
     {
       return split(
@@ -3053,7 +2973,7 @@ int main(int argc, char** argv)
           // that should be generalized.
           if (1 > result)
             throw option_value_is_invalid(
-              "device-side-overhead-graph-sizes", str
+              "device-overhead-graph-sizes", str
             , "because it must be greater than 1"
             );
 
@@ -3063,13 +2983,13 @@ int main(int argc, char** argv)
     }
   , [&] {
       return std::vector<int32_t>(
-        default_device_side_overhead_graph_sizes.begin()
-      , default_device_side_overhead_graph_sizes.end()
+        default_device_overhead_graph_sizes.begin()
+      , default_device_overhead_graph_sizes.end()
       );
     }
   );
 
-  auto const validate_device_side_overhead_graph_sizes
+  auto const validate_device_overhead_graph_sizes
     = [&] (
         char const* name
       , int32_t size
@@ -3083,7 +3003,7 @@ int main(int argc, char** argv)
 
         if (1 >= warmups_per_operation)
           throw option_value_is_invalid(
-            "device-side-overhead-graph-sizes", std::to_string(size)
+            "device-overhead-graph-sizes", std::to_string(size)
           , std::string("because the `--")
           + name
           + "-warmups-per-kernel` option value is too small - "
@@ -3092,7 +3012,7 @@ int main(int argc, char** argv)
 
         if (1 >= samples_per_operation)
           throw option_value_is_invalid(
-            "device-side-overhead-graph-sizes", std::to_string(size)
+            "device-overhead-graph-sizes", std::to_string(size)
           , std::string("because the `--")
           + name
           + "-samples-per-kernel` option value is too small - "
@@ -3100,20 +3020,20 @@ int main(int argc, char** argv)
           );
       };
 
-  for (int32_t size : device_side_overhead_graph_sizes)
+  for (int32_t size : device_overhead_graph_sizes)
   {
-    validate_device_side_overhead_graph_sizes(
-      "stream-device-side-overhead"
+    validate_device_overhead_graph_sizes(
+      "stream-launch"
     , size
-    , stream_device_side_overhead_warmups_per_kernel
-    , stream_device_side_overhead_samples_per_kernel
+    , stream_launch_warmups_per_kernel
+    , stream_launch_samples_per_kernel
     );
 
-    validate_device_side_overhead_graph_sizes(
-      "graph-device-side-overhead"
+    validate_device_overhead_graph_sizes(
+      "graph-launch"
     , size
-    , graph_device_side_overhead_warmups_per_kernel
-    , graph_device_side_overhead_samples_per_kernel
+    , graph_launch_warmups_per_kernel
+    , graph_launch_samples_per_kernel
     );
   }
 
@@ -3152,25 +3072,17 @@ int main(int argc, char** argv)
       << stream_launch_samples_per_kernel                    << endl
     << "stream-launch-warmups-per-kernel               == "
       << stream_launch_warmups_per_kernel                    << endl
-    << "graph-device-side-overhead-samples-per-kernel  == "
-      << graph_device_side_overhead_samples_per_kernel       << endl
-    << "graph-device-side-overhead-warmups-per-kernel  == "
-      << graph_device_side_overhead_warmups_per_kernel       << endl
-    << "stream-device-side-overhead-samples-per-kernel == "
-      << stream_device_side_overhead_samples_per_kernel      << endl
-    << "stream-device-side-overhead-warmups-per-kernel == "
-      << stream_device_side_overhead_warmups_per_kernel      << endl
-    << "compile-and-launch-graph-sizes                 == "
-      << compile_and_launch_graph_sizes                      << endl
-    << "device-side-overhead-graph-sizes               == "
-      << device_side_overhead_graph_sizes                    << endl
+    << "host-overhead-graph-sizes                      == "
+      << host_overhead_graph_sizes                           << endl
+    << "deviceoverhead-graph-sizes                     == "
+      << device_overhead_graph_sizes                         << endl
     << "adjacency-matrices                             == "
       << adjacency_matrices                                  << endl
     << "adjacency-matrices-only                        == "
       << adjacency_matrices_only                             << endl
     ;
   }
-         
+
   if (csv_data == output_type && header)
   {
     // Print CSV header first row (variable names)
@@ -3178,7 +3090,7 @@ int main(int argc, char** argv)
        << "," << "Average Execution Time"
        << "," << "Execution Time Absolute Uncertainty"
        << "," << "Execution Time Relative Uncertainty"
-       << "," << "Warmups per Kernel" 
+       << "," << "Warmups per Kernel"
        << "," << "Samples per Kernel"
        << "," << "Kernels per Operation"
        << "," << "Dependencies per Operation"
@@ -3210,7 +3122,7 @@ int main(int argc, char** argv)
   cuda_launch_shape hang_shape;
   cuda_function     payload;
   cuda_launch_shape payload_shape;
-  
+
   auto const device_reset
     = [&] {
         // First, we need to unload the module.
@@ -3222,12 +3134,12 @@ int main(int argc, char** argv)
         // Then, we make a new context.
         context = cuda_context(device);
 
-        // Load the module. 
+        // Load the module.
         try
         {
           module = cuda_module(binary_path + "/kernels");
         }
-        catch (cuda::driver_exception& e) 
+        catch (cuda::driver_exception& e)
         {
           if (CUDA_ERROR_FILE_NOT_FOUND != e.code())
             // Some other problem occurred, rethrow to report it.
@@ -3273,7 +3185,7 @@ int main(int argc, char** argv)
                     << model.value()
                     << " seconds (linear regression model, "
                     << 100.0 * (1.0 - model.relative_uncertainty())
-                    << " % match) " 
+                    << " % match) "
                     << "host-thread latency per kernel."
                     << std::endl;
       };
@@ -3353,14 +3265,14 @@ int main(int argc, char** argv)
 
   if (!adjacency_matrices_only)
   {
-    auto stream_launch_linearly_dependent_model = arithmetic_mean_harness(
-      [&]
+    auto stream_launch_single_host_overhead_model
+      = arithmetic_mean_harness([&]
       {
         return cuda_stream_harness(
           [&] (cuda_stream& stream)
           {
             return experiment(
-              "stream_launch_linearly_dependent"
+              "stream_launch_single_host_overhead"
             , stream_launch_warmups_per_kernel
             , stream_launch_samples_per_kernel
             , 1 // Kernels per operation.
@@ -3374,17 +3286,43 @@ int main(int argc, char** argv)
     , arithmetic_mean_reporter
     );
 
-    auto stream_device_side_overhead_model = ordinary_least_squares_harness(
-      [&] (int32_t kernels_per_graph)
+    auto stream_launch_linearly_dependent_host_overhead_model
+      = ordinary_least_squares_harness([&] (int32_t kernels_per_graph)
       {
         return cuda_stream_harness(
           [&] (cuda_stream& stream)
           {
             return experiment(
-              "stream_device_side_overhead"
-            , stream_device_side_overhead_warmups_per_kernel
-            , stream_device_side_overhead_samples_per_kernel
-            , kernels_per_graph // Kernels per operation.
+              "stream_launch_linearly_dependent_host_overhead"
+            , stream_launch_warmups_per_kernel
+            , stream_launch_samples_per_kernel
+            , kernels_per_graph       // Kernels per operation.
+            , (kernels_per_graph - 1) // Dependencies per operation.
+            , [&]
+              {
+                for (int32_t i = 0; i < kernels_per_graph; ++i)
+                  stream_launch(stream, noop, noop_shape);
+              }
+            );
+          }
+        , data_reporter
+        );
+      }
+    , ordinary_least_squares_reporter
+    , host_overhead_graph_sizes
+    );
+
+    auto stream_launch_linearly_dependent_device_overhead_model
+      = ordinary_least_squares_harness([&] (int32_t kernels_per_graph)
+      {
+        return cuda_stream_harness(
+          [&] (cuda_stream& stream)
+          {
+            return experiment(
+              "stream_launch_linearly_dependent_device_overhead"
+            , stream_launch_warmups_per_kernel
+            , stream_launch_samples_per_kernel
+            , kernels_per_graph       // Kernels per operation.
             , (kernels_per_graph - 1) // Dependencies per operation.
               // Test:
             , [&]
@@ -3406,12 +3344,12 @@ int main(int argc, char** argv)
 
                 // Delay, in nanoseconds.
                 uint64_t delay
-                  = stream_launch_linearly_dependent_model.value() * 3 * 1e9
+                  = stream_launch_single_host_overhead_model.value() * 3 * 1e9
                   * kernels_per_graph
                   ;
 
                 // Launch the "blocking" kernel.
-                stream_launch(stream, payload, payload_shape, delay); 
+                stream_launch(stream, payload, payload_shape, delay);
 
                 // Record the start time after the blocking kernel completes.
                 e.record(stream);
@@ -3432,18 +3370,18 @@ int main(int argc, char** argv)
                 stream.wait();
 
                 return end - start;
-              } 
+              }
             );
           }
         , data_reporter
         );
       }
     , ordinary_least_squares_reporter
-    , device_side_overhead_graph_sizes
+    , device_overhead_graph_sizes
     );
 
-    auto graph_compile_linearly_dependent_model = ordinary_least_squares_harness(
-      [&] (int32_t kernels_per_graph)
+    auto graph_compile_linearly_dependent_host_overhead_model
+      = ordinary_least_squares_harness([&] (int32_t kernels_per_graph)
       {
         return inline_harness(
           [&]
@@ -3451,7 +3389,7 @@ int main(int argc, char** argv)
             cuda_compiled_graph cg;
 
             return experiment(
-              "graph_compile_linearly_dependent"
+              "graph_compile_linearly_dependent_host_overhead"
             , graph_compile_warmups_per_kernel
             , graph_compile_samples_per_kernel
             , kernels_per_graph       // Kernels per operation.
@@ -3470,11 +3408,11 @@ int main(int argc, char** argv)
         );
       }
     , ordinary_least_squares_reporter
-    , compile_and_launch_graph_sizes
+    , host_overhead_graph_sizes
     );
 
-    auto graph_launch_linearly_dependent_model = ordinary_least_squares_harness(
-      [&] (int32_t kernels_per_graph)
+    auto graph_launch_linearly_dependent_host_overhead_model
+      = ordinary_least_squares_harness([&] (int32_t kernels_per_graph)
       {
         return cuda_stream_harness(
           [&] (cuda_stream& stream)
@@ -3484,7 +3422,7 @@ int main(int argc, char** argv)
             );
 
             return experiment(
-              "graph_launch_linearly_dependent"
+              "graph_launch_linearly_dependent_host_overhead"
             , graph_launch_warmups_per_kernel
             , graph_launch_samples_per_kernel
             , kernels_per_graph       // Kernels per operation.
@@ -3496,11 +3434,11 @@ int main(int argc, char** argv)
         );
       }
     , ordinary_least_squares_reporter
-    , compile_and_launch_graph_sizes
+    , host_overhead_graph_sizes
     );
 
-    auto graph_device_side_overhead_model = ordinary_least_squares_harness(
-      [&] (int32_t kernels_per_graph)
+    auto graph_launch_linearly_dependent_device_overhead_model
+      = ordinary_least_squares_harness([&] (int32_t kernels_per_graph)
       {
         return cuda_stream_harness(
           [&] (cuda_stream& stream)
@@ -3514,10 +3452,10 @@ int main(int argc, char** argv)
             cuda_event end;
 
             return experiment(
-              "graph_device_side_overhead"
-            , graph_device_side_overhead_warmups_per_kernel
-            , graph_device_side_overhead_samples_per_kernel
-            , kernels_per_graph // Kernels per operation.
+              "graph_launch_linearly_dependent_device_overhead"
+            , graph_launch_warmups_per_kernel
+            , graph_launch_samples_per_kernel
+            , kernels_per_graph       // Kernels per operation.
             , (kernels_per_graph - 1) // Dependencies per operation.
               // Test:
             , [&] { graph_launch(stream, cg); }
@@ -3535,12 +3473,13 @@ int main(int argc, char** argv)
 
                 // Delay, in nanoseconds.
                 uint64_t delay
-                  = graph_launch_linearly_dependent_model.value() * 3 * 1e9
+                  = graph_launch_linearly_dependent_host_overhead_model.value()
+                  * 3 * 1e9
                   * kernels_per_graph
                   ;
 
                 // Launch the "blocking" kernel.
-                stream_launch(stream, payload, payload_shape, delay); 
+                stream_launch(stream, payload, payload_shape, delay);
 
                 // Record the start time after the blocking kernel completes.
                 e.record(stream);
@@ -3561,40 +3500,45 @@ int main(int argc, char** argv)
                 stream.wait();
 
                 return end - start;
-              } 
+              }
             );
           }
         , data_reporter
         );
       }
     , ordinary_least_squares_reporter
-    , device_side_overhead_graph_sizes
+    , device_overhead_graph_sizes
     );
 
-    auto stream_launch_independent_model = arithmetic_mean_harness(
-      [&]
+    auto stream_launch_independent_host_overhead_model
+      = ordinary_least_squares_harness([&] (int32_t kernels_per_graph)
       {
         return cuda_stream_pool_harness(
           [&] (cuda_stream_pool& pool)
           {
             return experiment(
-              "stream_launch_independent"
+              "stream_launch_independent_host_overhead"
             , stream_launch_warmups_per_kernel
             , stream_launch_samples_per_kernel
-            , 1 // Kernels per operation.
-            , 0 // Dependencies per operation.
-            , [&] { stream_launch(pool, noop, noop_shape); }
+            , kernels_per_graph // Kernels per operation.
+            , 0                 // Dependencies per operation.
+            , [&]
+              {
+                for (int32_t i = 0; i < kernels_per_graph; ++i)
+                  stream_launch(pool, noop, noop_shape);
+              }
             );
           }
         , data_reporter
         , 64 // Streams in pool.
         );
       }
-    , arithmetic_mean_reporter
+    , ordinary_least_squares_reporter
+    , host_overhead_graph_sizes
     );
 
-    auto graph_compile_independent_model = ordinary_least_squares_harness(
-      [&] (int32_t kernels_per_graph)
+    auto graph_compile_independent_host_overhead_model
+      = ordinary_least_squares_harness([&] (int32_t kernels_per_graph)
       {
         return inline_harness(
           [&]
@@ -3602,11 +3546,11 @@ int main(int argc, char** argv)
             cuda_compiled_graph cg;
 
             return experiment(
-              "graph_compile_independent"
+              "graph_compile_independent_host_overhead"
             , graph_compile_warmups_per_kernel
             , graph_compile_samples_per_kernel
-            , kernels_per_graph       // Kernels per operation.
-            , (kernels_per_graph - 1) // Dependencies per operation.
+            , kernels_per_graph // Kernels per operation.
+            , 0                 // Dependencies per operation.
             , [&] {
                 cg = _MV(graph_compile_independent(
                   noop, noop_shape, kernels_per_graph
@@ -3621,11 +3565,11 @@ int main(int argc, char** argv)
         );
       }
     , ordinary_least_squares_reporter
-    , compile_and_launch_graph_sizes
+    , host_overhead_graph_sizes
     );
 
-    auto graph_launch_independent_model = ordinary_least_squares_harness(
-      [&] (int32_t kernels_per_graph)
+    auto graph_launch_independent_host_overhead_model
+      = ordinary_least_squares_harness([&] (int32_t kernels_per_graph)
       {
         return cuda_stream_harness(
           [&] (cuda_stream& stream)
@@ -3635,7 +3579,7 @@ int main(int argc, char** argv)
             );
 
             return experiment(
-              "graph_launch_independent"
+              "graph_launch_independent_host_overhead_model"
             , graph_launch_warmups_per_kernel
             , graph_launch_samples_per_kernel
             , kernels_per_graph       // Kernels per operation.
@@ -3647,7 +3591,7 @@ int main(int argc, char** argv)
         );
       }
     , ordinary_least_squares_reporter
-    , compile_and_launch_graph_sizes
+    , host_overhead_graph_sizes
     );
   }
 

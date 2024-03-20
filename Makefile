@@ -12,8 +12,8 @@ BUILD_TYPE      ?= release
 # The build directory to create and use.
 BUILD_DIRECTORY ?= $(ROOT)/build__$(BUILD_TYPE)/
 
-# C++ version (`c++14`, `c++1z`, or `c++17`)
-CXX_VERSION     ?= c++14
+# C++ version (`c++14`, `c++17`, or `c++20`)
+CXX_VERSION     ?= c++20
 
 # Host C++ (`.cpp`) -> Host Object File (`.o`) -> Host Executable
 
