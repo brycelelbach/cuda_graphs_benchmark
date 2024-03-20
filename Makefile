@@ -29,7 +29,7 @@ HOST_ISO_CXX_XCOMPILER_FLAGS ?=
 # Host/device CUDA C++ compiler (path to executable).
 CUDA_CXX              ?= nvcc
 # Flags for compiling device CUDA C++ code.
-DEVICE_CUDA_CXX_FLAGS ?=
+DEVICE_CUDA_CXX_FLAGS ?= -rdc=true
 
 ###############################################################################
 
@@ -68,7 +68,7 @@ IGNORE := $(call PRINT_CONFIG) # Print blank newline.
 # Tell the host/device CUDA C++ compiler which device architectures to generate
 # code for when compiling device CUDA C++.
 ifeq ($(DEVICE_ARCH),all)
-  DEVICE_CUDA_CXX_FLAGS += --fatbin -gencode arch=compute_35,code=compute_35
+  DEVICE_CUDA_CXX_FLAGS += --fatbin -gencode arch=compute_70,code=compute_70
 else
   DEVICE_CUDA_CXX_FLAGS += --cubin -gencode arch=compute_$(DEVICE_ARCH),code=sm_$(DEVICE_ARCH)
 endif

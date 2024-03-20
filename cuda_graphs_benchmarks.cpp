@@ -3122,6 +3122,8 @@ int main(int argc, char** argv)
   cuda_launch_shape hang_shape;
   cuda_function     payload;
   cuda_launch_shape payload_shape;
+  cuda_function     noop_dynamic_linearly_dependent;
+  cuda_launch_shape noop_dynamic_linearly_dependent_shape;
 
   auto const device_reset
     = [&] {
@@ -3161,6 +3163,11 @@ int main(int argc, char** argv)
 
         payload = cuda_function(module, "payload_kernel");
         payload_shape = cuda_compute_occupancy(payload);
+
+        noop_dynamic_linearly_dependent
+          = cuda_function(module, "noop_dynamic_linearly_dependent_kernel");
+        noop_dynamic_linearly_dependent_shape
+          = cuda_compute_occupancy(noop_dynamic_linearly_dependent);
       };
 
   device_reset();
@@ -3592,6 +3599,38 @@ int main(int argc, char** argv)
       }
     , ordinary_least_squares_reporter
     , host_overhead_graph_sizes
+    );
+
+    auto stream_launch_dynamic_linearly_dependent_host_overhead_model
+      = ordinary_least_squares_harness([&] (int32_t kernels_per_graph)
+      {
+        return cuda_stream_harness(
+          [&] (cuda_stream& stream)
+          {
+            return experiment(
+              "stream_launch_dynamic_linearly_dependent_host_overhead"
+            , stream_launch_warmups_per_kernel
+            , stream_launch_samples_per_kernel
+            , kernels_per_graph       // Kernels per operation.
+            , (kernels_per_graph - 1) // Dependencies per operation.
+            , [&]
+              {
+                stream_launch(
+                  stream
+                , noop_dynamic_linearly_dependent
+                , noop_dynamic_linearly_dependent_shape
+                , kernels_per_graph
+                , noop_dynamic_linearly_dependent_shape.grid_size
+                , noop_dynamic_linearly_dependent_shape.block_size
+                );
+              }
+            );
+          }
+        , data_reporter
+        );
+      }
+    , ordinary_least_squares_reporter
+    , device_overhead_graph_sizes
     );
   }
 
