@@ -47,7 +47,7 @@ struct cuda_globaltimer_clocksource
   using rep      = uint64_t;
   using period   = std::nano;
 
-  __device__
+  __host__ __device__
   static rep timestamp()
   {
     rep t;

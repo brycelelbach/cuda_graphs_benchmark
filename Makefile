@@ -18,18 +18,16 @@ CXX_VERSION     ?= c++20
 # Host C++ (`.cpp`) -> Host Object File (`.o`) -> Host Executable
 
 # Host ISO C++ compiler (path to executable).
-ISO_CXX                      ?= c++
-# Flags passed to the host/device CUDA C++ compiler when compiling host ISO C++ code.
-HOST_ISO_CXX_FLAGS           += -lcuda
+ISO_CXX                 ?= c++
 # Flags passed to the host ISO C++ compiler when compiling host ISO C++ code.
-HOST_ISO_CXX_XCOMPILER_FLAGS ?=
+ISO_CXX_XCOMPILER_FLAGS ?= -Wall -Wno-sign-compare
 
 # Device CUDA C++ (`.cu`) -> Device Binary (`.cubin`)
 
 # Host/device CUDA C++ compiler (path to executable).
-CUDA_CXX              ?= nvcc
-# Flags for compiling device CUDA C++ code.
-DEVICE_CUDA_CXX_FLAGS ?= -rdc=true
+CUDA_CXX       ?= nvcc
+# Flags for compiling CUDA C++ code.
+CUDA_CXX_FLAGS ?= -rdc=true
 
 ###############################################################################
 
@@ -45,22 +43,21 @@ endef
 # Diagnostics macro for use within rules. Prints its single argument to both
 # stdout and the build log.
 define PRINT_RULE =
-	@echo $(1) | tee -a build.log
-	@$(1) 2>&1 | tee -a build.log
+  @echo $(1) | tee -a build.log
+  @$(1) 2>&1 | tee -a build.log
 endef
 
 IGNORE := $(call PRINT_CONFIG,"///////////////////////////////////////////////////////////////////////////////")
 IGNORE := $(call PRINT_CONFIG,"// Settings")
 IGNORE := $(call PRINT_CONFIG,"///////////////////////////////////////////////////////////////////////////////")
-IGNORE := $(call PRINT_CONFIG,"// DEVICE_ARCH                  : $(value DEVICE_ARCH)")
-IGNORE := $(call PRINT_CONFIG,"// BUILD_TYPE                   : $(value BUILD_TYPE)")
-IGNORE := $(call PRINT_CONFIG,"// BUILD_DIRECTORY              : $(value BUILD_DIRECTORY)")
-IGNORE := $(call PRINT_CONFIG,"// CXX_VERSION                  : $(value CXX_VERSION)")
-IGNORE := $(call PRINT_CONFIG,"// ISO_CXX                      : $(value CXX)")
-IGNORE := $(call PRINT_CONFIG,"// HOST_ISO_CXX_FLAGS           : $(value HOST_ISO_CXX_FLAGS)")
-IGNORE := $(call PRINT_CONFIG,"// HOST_ISO_CXX_XCOMPILER_FLAGS : $(value HOST_ISO_CXX_XCOMPILER_FLAGS)")
-IGNORE := $(call PRINT_CONFIG,"// CUDA_CXX                     : $(value CUDA_CXX)")
-IGNORE := $(call PRINT_CONFIG,"// DEVICE_CUDA_CXX_FLAGS        : $(value DEVICE_CUDA_CXX_FLAGS)")
+IGNORE := $(call PRINT_CONFIG,"// DEVICE_ARCH             : $(value DEVICE_ARCH)")
+IGNORE := $(call PRINT_CONFIG,"// BUILD_TYPE              : $(value BUILD_TYPE)")
+IGNORE := $(call PRINT_CONFIG,"// BUILD_DIRECTORY         : $(value BUILD_DIRECTORY)")
+IGNORE := $(call PRINT_CONFIG,"// CXX_VERSION             : $(value CXX_VERSION)")
+IGNORE := $(call PRINT_CONFIG,"// ISO_CXX                 : $(value CXX)")
+IGNORE := $(call PRINT_CONFIG,"// ISO_CXX_XCOMPILER_FLAGS : $(value ISO_CXX_XCOMPILER_FLAGS)")
+IGNORE := $(call PRINT_CONFIG,"// CUDA_CXX                : $(value CUDA_CXX)")
+IGNORE := $(call PRINT_CONFIG,"// CUDA_CXX_FLAGS          : $(value DEVICE_CUDA_CXX_FLAGS)")
 IGNORE := $(call PRINT_CONFIG) # Print blank newline.
 
 ###############################################################################
@@ -68,28 +65,25 @@ IGNORE := $(call PRINT_CONFIG) # Print blank newline.
 # Tell the host/device CUDA C++ compiler which device architectures to generate
 # code for when compiling device CUDA C++.
 ifeq ($(DEVICE_ARCH),all)
-  DEVICE_CUDA_CXX_FLAGS += --fatbin -gencode arch=compute_70,code=compute_70
+  CUDA_CXX_FLAGS += -gencode arch=compute_70,code=compute_70
 else
-  DEVICE_CUDA_CXX_FLAGS += --cubin -gencode arch=compute_$(DEVICE_ARCH),code=sm_$(DEVICE_ARCH)
+  CUDA_CXX_FLAGS += -gencode arch=compute_$(DEVICE_ARCH),code=sm_$(DEVICE_ARCH)
 endif
 
 ifeq      ($(BUILD_TYPE),release)
-  HOST_ISO_CXX_XCOMPILER_FLAGS  += -O3
+  ISO_CXX_XCOMPILER_FLAGS += -O3
 else ifeq ($(BUILD_TYPE),debug)
-  HOST_ISO_CXX_XCOMPILER_FLAGS  += -O0
-  DEVICE_CUDA_CXX_FLAGS         += -G
+  ISO_CXX_XCOMPILER_FLAGS += -O0
+  CUDA_CXX_FLAGS          += -G -O0
 endif
 
-HOST_ISO_CXX_FLAGS    += -std=$(CXX_VERSION)
-DEVICE_CUDA_CXX_FLAGS += -std=$(CXX_VERSION)
+CUDA_CXX_FLAGS += -std=$(CXX_VERSION)
 
-# Tell the host/device CUDA C++ compiler which host ISO C++ compiler to use
-# when compiling host ISO C++ code.
-HOST_ISO_CXX_FLAGS += -ccbin $(ISO_CXX)
-DEVICE_CUDA_CXX_FLAGS += -ccbin $(ISO_CXX)
+# Tell the host/device CUDA C++ compiler which host ISO C++ compiler to use.
+CUDA_CXX_FLAGS += -ccbin $(ISO_CXX)
 
-# Add `HOST_ISO_CXX_XCOMPILER_FLAGS` to `HOST_ISO_CXX_FLAGS`.
-HOST_ISO_CXX_FLAGS += $(foreach flag,$(HOST_ISO_CXX_XCOMPILER_FLAGS),-Xcompiler $(flag))
+# Add `HOST_ISO_CXX_XCOMPILER_FLAGS` to `CUDA_CXX_FLAGS`.
+CUDA_CXX_FLAGS += $(foreach flag,$(ISO_CXX_XCOMPILER_FLAGS),-Xcompiler $(flag))
 
 ###############################################################################
 
@@ -101,37 +95,29 @@ ROOT = $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 ROOT            := $(ROOT:/=)
 BUILD_DIRECTORY := $(BUILD_DIRECTORY:/=)
 
-HOST_ISO_CXX_FLAGS    += -I$(ROOT)
-DEVICE_CUDA_CXX_FLAGS += -I$(ROOT)
+CUDA_CXX_FLAGS += -I$(ROOT)
 
 # Strip leading and trailing whitespace from flags.
-HOST_ISO_CXX_FLAGS    := $(strip $(HOST_ISO_CXX_FLAGS))
-DEVICE_CUDA_CXX_FLAGS := $(strip $(DEVICE_CUDA_CXX_FLAGS))
+CUDA_CXX_FLAGS := $(strip $(CUDA_CXX_FLAGS))
 
-HOST_ISO_CXX_SOURCES    = $(wildcard $(ROOT)/*.cpp)
-HOST_ISO_CXX_TARGETS    = $(HOST_ISO_CXX_SOURCES:.cpp=)
-
-DEVICE_CUDA_CXX_SOURCES = $(wildcard $(ROOT)/*.cu)
-DEVICE_CUDA_CXX_TARGETS = $(DEVICE_CUDA_CXX_SOURCES:.cu=)
+CUDA_CXX_SOURCES = $(wildcard $(ROOT)/*.cu)
+CUDA_CXX_TARGETS = $(CUDA_CXX_SOURCES:.cu=)
 
 ###############################################################################
 
 IGNORE := $(call PRINT_CONFIG,"///////////////////////////////////////////////////////////////////////////////")
 IGNORE := $(call PRINT_CONFIG,"// Computed variables")
 IGNORE := $(call PRINT_CONFIG,"///////////////////////////////////////////////////////////////////////////////")
-IGNORE := $(call PRINT_CONFIG,"// ROOT                    : $(ROOT)")
-IGNORE := $(call PRINT_CONFIG,"// BUILD_DIRECTORY         : $(BUILD_DIRECTORY)")
-IGNORE := $(call PRINT_CONFIG,"// HOST_ISO_CXX_FLAGS      : $(HOST_ISO_CXX_FLAGS)")
-IGNORE := $(call PRINT_CONFIG,"// HOST_ISO_CXX_SOURCES    : $(HOST_ISO_CXX_SOURCES)")
-IGNORE := $(call PRINT_CONFIG,"// HOST_ISO_CXX_TARGETS    : $(HOST_ISO_CXX_TARGETS)")
-IGNORE := $(call PRINT_CONFIG,"// DEVICE_CUDA_CXX_FLAGS   : $(DEVICE_CUDA_CXX_FLAGS)")
-IGNORE := $(call PRINT_CONFIG,"// DEVICE_CUDA_CXX_SOURCES : $(DEVICE_CUDA_CXX_SOURCES)")
-IGNORE := $(call PRINT_CONFIG,"// DEVICE_CUDA_CXX_TARGETS : $(DEVICE_CUDA_CXX_TARGETS)")
+IGNORE := $(call PRINT_CONFIG,"// ROOT             : $(ROOT)")
+IGNORE := $(call PRINT_CONFIG,"// BUILD_DIRECTORY  : $(BUILD_DIRECTORY)")
+IGNORE := $(call PRINT_CONFIG,"// CUDA_CXX_FLAGS   : $(CUDA_CXX_FLAGS)")
+IGNORE := $(call PRINT_CONFIG,"// CUDA_CXX_SOURCES : $(CUDA_CXX_SOURCES)")
+IGNORE := $(call PRINT_CONFIG,"// CUDA_CXX_TARGETS : $(CUDA_CXX_TARGETS)")
 IGNORE := $(call PRINT_CONFIG) # Print blank newline.
 
 ###############################################################################
 
-all: $(HOST_ISO_CXX_TARGETS) $(DEVICE_CUDA_CXX_TARGETS)
+all: $(CUDA_CXX_TARGETS)
 
 print_environment:
 	@echo '///////////////////////////////////////////////////////////////////////////////' | tee -a build.log
@@ -167,17 +153,10 @@ $(BUILD_DIRECTORY): print_environment
 	$(call PRINT_RULE,mkdir -p $@)
 	@echo | tee -a build.log
 
-% : %.cpp $(BUILD_DIRECTORY)
-	@echo '///////////////////////////////////////////////////////////////////////////////' | tee -a build.log
-	@echo '// Building host executable $(*F) in directory $(BUILD_DIRECTORY)' | tee -a build.log
-	@echo '///////////////////////////////////////////////////////////////////////////////' | tee -a build.log
-	$(call PRINT_RULE,$(CUDA_CXX) $(HOST_ISO_CXX_FLAGS) $< -o $(BUILD_DIRECTORY)/$(*F))
-	@echo | tee -a build.log
-
 % : %.cu $(BUILD_DIRECTORY)
 	@echo '///////////////////////////////////////////////////////////////////////////////' | tee -a build.log
-	@echo '// Building device binary $(*F) in directory $(BUILD_DIRECTORY)' | tee -a build.log
+	@echo '// Building executable $(*F) in directory $(BUILD_DIRECTORY)' | tee -a build.log
 	@echo '///////////////////////////////////////////////////////////////////////////////' | tee -a build.log
-	$(call PRINT_RULE,$(CUDA_CXX) $(DEVICE_CUDA_CXX_FLAGS) $< -o $(BUILD_DIRECTORY)/$(*F))
+	$(call PRINT_RULE,$(CUDA_CXX) $(CUDA_CXX_FLAGS) $< -o $(BUILD_DIRECTORY)/$(*F))
 	@echo | tee -a build.log
 

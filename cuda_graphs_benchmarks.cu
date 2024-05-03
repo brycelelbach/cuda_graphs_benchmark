@@ -128,6 +128,7 @@ Testing
 #include <fstream>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cassert>
 
 #include <cuda.h>
@@ -136,127 +137,7 @@ Testing
 #include <cuda/type_deduction.hpp>
 #include <cuda/exception.hpp>
 
-// Including `<stdlib.h>` or `<cstdlib>` on QNX 7.0 doesn't seem to pull in a
-// declaration of `realpath`, so just declare it ourselves.
-extern char* realpath(char const*, char*);
-
-///////////////////////////////////////////////////////////////////////////////
-
-struct cuda_context_deleter final
-{
-  void operator()(CUctx_st* context) const
-  {
-    if (nullptr != context)
-      CUDA_THROW_ON_ERROR(cuCtxDestroy(context));
-  }
-};
-
-struct cuda_context final
-{
-private:
-  std::unique_ptr<CUctx_st, cuda_context_deleter> ptr_;
-
-public:
-  cuda_context() = default;
-
-  cuda_context(int32_t device_ordinal)
-  {
-    CUdevice device;
-    CUDA_THROW_ON_ERROR(cuDeviceGet(&device, device_ordinal));
-
-    CUctx_st* context;
-    CUDA_THROW_ON_ERROR(cuCtxCreate(&context, 0, device));
-
-    ptr_.reset(context);
-  }
-
-  cuda_context(cuda_context const&)     = delete;
-  cuda_context(cuda_context&&) noexcept = default;
-
-  cuda_context& operator=(cuda_context const&)     = delete;
-  cuda_context& operator=(cuda_context&&) noexcept = default;
-
-  CUctx_st& operator*()  const _RETURNS(*ptr_.get());
-  CUctx_st* operator->() const _RETURNS(ptr_.get());
-  CUctx_st* get()        const _RETURNS(ptr_.get());
-
-  void reset() { ptr_.reset(); }
-};
-
-///////////////////////////////////////////////////////////////////////////////
-
-struct cuda_module_deleter final
-{
-  void operator()(CUmod_st* module) const
-  {
-    if (nullptr != module)
-      CUDA_THROW_ON_ERROR(cuModuleUnload(module));
-  }
-};
-
-struct cuda_module final
-{
-private:
-  std::unique_ptr<CUmod_st, cuda_module_deleter> ptr_;
-
-public:
-  cuda_module() = default;
-
-  cuda_module(std::string const& filename)
-  {
-    CUmod_st* module;
-    CUDA_THROW_ON_ERROR(cuModuleLoad(&module, filename.c_str()));
-    ptr_.reset(module);
-  }
-
-  cuda_module(cuda_module const&)     = delete;
-  cuda_module(cuda_module&&) noexcept = default;
-
-  cuda_module& operator=(cuda_module const&)     = delete;
-  cuda_module& operator=(cuda_module&&) noexcept = default;
-
-  CUmod_st& operator*()  const _RETURNS(*ptr_.get());
-  CUmod_st* operator->() const _RETURNS(ptr_.get());
-  CUmod_st* get()        const _RETURNS(ptr_.get());
-
-  void reset() { ptr_.reset(); }
-};
-
-///////////////////////////////////////////////////////////////////////////////
-
-struct cuda_function_deleter final
-{
-  void operator()(CUfunc_st* function) const {}
-};
-
-struct cuda_function final
-{
-private:
-  std::unique_ptr<CUfunc_st, cuda_function_deleter> ptr_;
-
-public:
-  cuda_function() = default;
-
-  cuda_function(cuda_module& module, char const* function_name)
-  {
-    CUfunc_st* function;
-    CUDA_THROW_ON_ERROR(
-      cuModuleGetFunction(&function, module.get(), function_name)
-    );
-
-    ptr_.reset(function);
-  }
-
-  cuda_function(cuda_function const&)     = delete;
-  cuda_function(cuda_function&&) noexcept = default;
-
-  cuda_function& operator=(cuda_function const&)     = delete;
-  cuda_function& operator=(cuda_function&&) noexcept = default;
-
-  CUfunc_st& operator*()  const _RETURNS(*ptr_.get());
-  CUfunc_st* operator->() const _RETURNS(ptr_.get());
-  CUfunc_st* get()        const _RETURNS(ptr_.get());
-};
+#include <clocks.hpp>
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -265,7 +146,7 @@ struct cuda_stream_deleter final
   void operator()(CUstream_st* stream) const
   {
     if (nullptr != stream)
-      CUDA_THROW_ON_ERROR(cuStreamDestroy(stream));
+      CUDA_THROW_ON_ERROR(cudaStreamDestroy(stream));
   }
 };
 
@@ -278,7 +159,7 @@ public:
   cuda_stream()
   {
     CUstream_st* stream;
-    CUDA_THROW_ON_ERROR(cuStreamCreate(&stream, CU_STREAM_DEFAULT));
+    CUDA_THROW_ON_ERROR(cudaStreamCreate(&stream));
     ptr_.reset(stream);
   }
 
@@ -291,7 +172,7 @@ public:
 
   void release() { ptr_.release(); }
 
-  void wait() { CUDA_THROW_ON_ERROR(cuStreamSynchronize(get())); }
+  void wait() { CUDA_THROW_ON_ERROR(cudaStreamSynchronize(get())); }
 };
 
 struct cuda_stream_pool final
@@ -319,7 +200,7 @@ public:
   void wait()
   {
     for (auto&& stream : streams_)
-      CUDA_THROW_ON_ERROR(cuStreamSynchronize(stream.get()));
+      CUDA_THROW_ON_ERROR(cudaStreamSynchronize(stream.get()));
   }
 };
 
@@ -330,7 +211,7 @@ struct cuda_event_deleter final
   void operator()(CUevent_st* event) const
   {
     if (nullptr != event)
-      CUDA_THROW_ON_ERROR(cuEventDestroy(event));
+      CUDA_THROW_ON_ERROR(cudaEventDestroy(event));
   }
 };
 
@@ -343,7 +224,7 @@ public:
   cuda_event()
   {
     CUevent_st* event;
-    CUDA_THROW_ON_ERROR(cuEventCreate(&event, CU_EVENT_DEFAULT));
+    CUDA_THROW_ON_ERROR(cudaEventCreate(&event));
     ptr_.reset(event);
   }
 
@@ -358,18 +239,18 @@ public:
 
   void release() { ptr_.release(); }
 
-  void wait() { CUDA_THROW_ON_ERROR(cuEventSynchronize(get())); }
+  void wait() { CUDA_THROW_ON_ERROR(cudaEventSynchronize(get())); }
 
   void record(cuda_stream& stream)
   {
-    CUDA_THROW_ON_ERROR(cuEventRecord(get(), stream.get()));
+    CUDA_THROW_ON_ERROR(cudaEventRecord(get(), stream.get()));
   }
 
   // Returns: Difference in time in seconds.
   double operator-(cuda_event const& start) const
   {
     float milliseconds;
-    CUDA_THROW_ON_ERROR(cuEventElapsedTime(&milliseconds, start.get(), get()));
+    CUDA_THROW_ON_ERROR(cudaEventElapsedTime(&milliseconds, start.get(), get()));
     return double(milliseconds) * 1e-3;
   }
 };
@@ -381,7 +262,7 @@ struct cuda_graph_deleter final
   void operator()(CUgraph_st* graph) const
   {
     if (nullptr != graph)
-      CUDA_THROW_ON_ERROR(cuGraphDestroy(graph));
+      CUDA_THROW_ON_ERROR(cudaGraphDestroy(graph));
   }
 };
 
@@ -394,7 +275,7 @@ public:
   cuda_graph()
   {
     CUgraph_st* graph;
-    CUDA_THROW_ON_ERROR(cuGraphCreate(&graph, 0));
+    CUDA_THROW_ON_ERROR(cudaGraphCreate(&graph, 0));
     ptr_.reset(graph);
   }
 
@@ -411,7 +292,7 @@ struct cuda_compiled_graph_deleter final
   void operator()(CUgraphExec_st* graph) const
   {
     if (nullptr != graph)
-      CUDA_THROW_ON_ERROR(cuGraphExecDestroy(graph));
+      CUDA_THROW_ON_ERROR(cudaGraphExecDestroy(graph));
   }
 };
 
@@ -426,9 +307,8 @@ public:
   cuda_compiled_graph(cuda_graph& template_)
   {
     CUgraphExec_st* graph;
-    CUgraphNode n;
     CUDA_THROW_ON_ERROR(
-      cuGraphInstantiate(&graph, template_.get(), 0)
+      cudaGraphInstantiate(&graph, template_.get(), 0)
     );
     ptr_.reset(graph);
   }
@@ -965,7 +845,7 @@ T constexpr arithmetic_mean(InputIt first, InputIt last, T init)
 {
   value_and_count<T> init_vc(init, 0);
 
-  counting_op<T, std::plus<T>> reduce_vc;
+  counting_op<T, std::plus<T>> reduce_vc{};
 
   value_and_count<T> vc = std::accumulate(first, last, init_vc, reduce_vc);
 
@@ -984,7 +864,7 @@ T constexpr sample_standard_deviation(InputIt first, InputIt last, T average)
 {
   value_and_count<T> init_vc(T{}, 0);
 
-  counting_op<T, std::plus<T>> reduce_vc;
+  counting_op<T, std::plus<T>> reduce_vc{};
 
   squared_difference<T> transform(average);
 
@@ -1603,6 +1483,11 @@ auto experiment(
 
 ///////////////////////////////////////////////////////////////////////////////
 
+dim3 make_dim3(int32_t x, int32_t y, int32_t z)
+{
+  return {unsigned(x), unsigned(y), unsigned(z)};
+}
+
 struct cuda_launch_shape final
 {
   int32_t grid_size;  // Blocks per grid.
@@ -1617,28 +1502,30 @@ struct cuda_launch_shape final
   {}
 };
 
-cuda_launch_shape cuda_compute_occupancy(cuda_function& f)
+template <typename Function>
+cuda_launch_shape cuda_compute_occupancy(Function f)
 {
   int32_t grid_size  = 0;
   int32_t block_size = 0;
 
   CUDA_THROW_ON_ERROR(
-    cuOccupancyMaxPotentialBlockSize(
-      &grid_size, &block_size, f.get(), 0, 0, 0
+    cudaOccupancyMaxPotentialBlockSize(
+      &grid_size, &block_size, f
     )
   );
 
   return cuda_launch_shape(grid_size, block_size);
 }
 
-cuda_launch_shape cuda_compute_occupancy(cuda_function& f, int32_t input_size)
+template <typename Function>
+cuda_launch_shape cuda_compute_occupancy(Function f, int32_t input_size)
 {
   int32_t min_grid_size = 0;
   int32_t block_size    = 0;
 
   CUDA_THROW_ON_ERROR(
-    cuOccupancyMaxPotentialBlockSize(
-      &min_grid_size, &block_size, f.get(), 0, 0, 0
+    cudaOccupancyMaxPotentialBlockSize(
+      &min_grid_size, &block_size, f
     )
   );
 
@@ -1675,7 +1562,7 @@ constexpr auto args_tuple_to_void_ptr_array(std::tuple<Args...>& args)
 
 template <size_t N>
 auto graph_compile_linearly_dependent(
-  std::array<CUfunc_st*, N>        fs
+  std::array<void*, N>             fs
 , std::array<cuda_launch_shape, N> shapes
 , std::array<int32_t, N>           kernels_per_graph_per_f
 , std::array<void**, N>            args_per_f
@@ -1688,14 +1575,10 @@ auto graph_compile_linearly_dependent(
 
   for (int32_t j = 0; j < N; ++j)
   {
-    CUDA_KERNEL_NODE_PARAMS desc;
+    cudaKernelNodeParams desc;
     desc.func = fs[j];
-    desc.gridDimX = shapes[j].grid_size;
-    desc.gridDimY = 1;
-    desc.gridDimZ = 1;
-    desc.blockDimX = shapes[j].block_size;
-    desc.blockDimY = 1;
-    desc.blockDimZ = 1;
+    desc.gridDim  = make_dim3(shapes[j].grid_size,  1, 1);
+    desc.blockDim = make_dim3(shapes[j].block_size, 1, 1);
     desc.sharedMemBytes = 0;
     desc.kernelParams = args_per_f[j];
     desc.extra = nullptr;
@@ -1703,7 +1586,7 @@ auto graph_compile_linearly_dependent(
     // NOTE: We're not using range-based for and `xrange` here due to a GCC ICE.
     for (int32_t i = 0; i < kernels_per_graph_per_f[j]; ++i)
     {
-      CUDA_THROW_ON_ERROR(cuGraphAddKernelNode(
+      CUDA_THROW_ON_ERROR(cudaGraphAddKernelNode(
         &next, graph.get(), &prev, prev != nullptr, &desc
       ));
 
@@ -1714,9 +1597,9 @@ auto graph_compile_linearly_dependent(
   return cuda_compiled_graph(graph);
 }
 
-template <typename... Args>
+template <typename Function, typename... Args>
 auto graph_compile_linearly_dependent(
-  cuda_function&    f
+  Function          f
 , cuda_launch_shape shape
 , int32_t           kernels_per_graph
 , Args&&...         args
@@ -1727,7 +1610,7 @@ auto graph_compile_linearly_dependent(
   // Returns an array of `void*`.
   auto args_ptrs = args_tuple_to_void_ptr_array(args_tuple);
 
-  std::array<CUfunc_st*, 1> fs = { f.get() };
+  std::array<void*, 1> fs = { reinterpret_cast<void*>(f) };
   std::array<cuda_launch_shape, 1> shapes = { shape };
   std::array<int32_t, 1> kernels_per_graph_per_f = { kernels_per_graph };
   std::array<void**, 1> args_per_f = { args_ptrs.data() };
@@ -1737,37 +1620,9 @@ auto graph_compile_linearly_dependent(
   );
 }
 
-template <typename Args0, typename Args1>
-auto graph_compile_linearly_dependent_two_kernels(
-  cuda_function&    f0
-, cuda_launch_shape shape0
-, int32_t           kernels_per_graph0
-, Args0&            args0
-, cuda_function&    f1
-, cuda_launch_shape shape1
-, int32_t           kernels_per_graph1
-, Args1&            args1
-)
-{
-  // Returns an array of `void*`.
-  auto args_ptrs0 = args_tuple_to_void_ptr_array(args0);
-  auto args_ptrs1 = args_tuple_to_void_ptr_array(args1);
-
-  std::array<CUfunc_st*, 2> fs = { f0.get(), f1.get() };
-  std::array<cuda_launch_shape, 2> shapes = { shape0, shape1 };
-  std::array<int32_t, 2> kernels_per_graph_per_f
-    = { kernels_per_graph0, kernels_per_graph1 };
-  std::array<void**, 2> args_per_f
-    = { args_ptrs0.data(), args_ptrs1.data() };
-
-  return graph_compile_linearly_dependent(
-    fs, shapes, kernels_per_graph_per_f, args_per_f
-  );
-}
-
-template <typename... Args>
+template <typename Function, typename... Args>
 auto graph_compile_independent(
-  cuda_function&    f
+  Function          f
 , cuda_launch_shape shape
 , int32_t           kernels_per_graph
 , Args...           args
@@ -1777,14 +1632,10 @@ auto graph_compile_independent(
 
   void* args_ptrs[] = { std::addressof(args)... };
 
-  CUDA_KERNEL_NODE_PARAMS desc;
-  desc.func = f.get();
-  desc.gridDimX = shape.grid_size;
-  desc.gridDimY = 1;
-  desc.gridDimZ = 1;
-  desc.blockDimX = shape.block_size;
-  desc.blockDimY = 1;
-  desc.blockDimZ = 1;
+  cudaKernelNodeParams desc;
+  desc.func = reinterpret_cast<void*>(f);
+  desc.gridDim  = make_dim3(shape.grid_size,  1, 1);
+  desc.blockDim = make_dim3(shape.block_size, 1, 1);
   desc.sharedMemBytes = 0;
   desc.kernelParams = args_ptrs;
   desc.extra = nullptr;
@@ -1794,7 +1645,7 @@ auto graph_compile_independent(
   {
     CUgraphNode_st* node = nullptr;
 
-    CUDA_THROW_ON_ERROR(cuGraphAddKernelNode(
+    CUDA_THROW_ON_ERROR(cudaGraphAddKernelNode(
       &node, graph.get(), nullptr, 0, &desc
     ));
   }
@@ -1806,7 +1657,7 @@ auto graph_compile_independent(
 
 struct placeholder {};
 
-constexpr placeholder _ {}; // This does not make me a bad person.
+[[maybe_unused]] constexpr placeholder _ {}; // This does not make me a bad person.
 
 struct layout_left
 {
@@ -2276,15 +2127,15 @@ void graph_add_edges(
 {
   for (auto&& e : edges)
   {
-    CUDA_THROW_ON_ERROR(cuGraphAddDependencies(
+    CUDA_THROW_ON_ERROR(cudaGraphAddDependencies(
       graph.get(), &vertices[e.from], &vertices[e.to], 1
     ));
   }
 }
 
-template <typename... Args>
+template <typename Function, typename... Args>
 auto graph_compile_from_edges(
-  cuda_function&           f
+  Function                f
 , cuda_launch_shape        shape
 , int32_t                  kernels_per_graph
 , std::vector<edge> const& edges
@@ -2295,14 +2146,10 @@ auto graph_compile_from_edges(
 
   void* args_ptrs[] = { std::addressof(args)... };
 
-  CUDA_KERNEL_NODE_PARAMS desc;
-  desc.func = f.get();
-  desc.gridDimX = shape.grid_size;
-  desc.gridDimY = 1;
-  desc.gridDimZ = 1;
-  desc.blockDimX = shape.block_size;
-  desc.blockDimY = 1;
-  desc.blockDimZ = 1;
+  cudaKernelNodeParams desc;
+  desc.func = reinterpret_cast<void*>(f);
+  desc.gridDim  = make_dim3(shape.grid_size,  1, 1);
+  desc.blockDim = make_dim3(shape.block_size, 1, 1);
   desc.sharedMemBytes = 0;
   desc.kernelParams = args_ptrs;
   desc.extra = nullptr;
@@ -2314,7 +2161,7 @@ auto graph_compile_from_edges(
   // NOTE: We're not using range-based for and `xrange` here due to a GCC ICE.
   for (int32_t i = 0; i < kernels_per_graph; ++i)
   {
-    CUDA_THROW_ON_ERROR(cuGraphAddKernelNode(
+    CUDA_THROW_ON_ERROR(cudaGraphAddKernelNode(
       &vertices[i], graph.get(), nullptr, 0, &desc
     ));
   }
@@ -2328,26 +2175,26 @@ auto graph_compile_from_edges(
 
 ///////////////////////////////////////////////////////////////////////////////
 
-template <typename Streamish, typename... Args>
+template <typename Streamish, typename Function, typename... Args>
 void stream_launch(
   Streamish& streamish
-, cuda_function& f
+, Function f
 , cuda_launch_shape shape
 , Args&&... args
 )
 {
   void* args_ptrs[] = { std::addressof(args)... };
-  CUDA_THROW_ON_ERROR(cuLaunchKernel(
-    f.get()
-  , shape.grid_size,  1, 1
-  , shape.block_size, 1, 1
-  , 0, streamish.get(), args_ptrs, 0
+  CUDA_THROW_ON_ERROR(cudaLaunchKernel(
+    reinterpret_cast<void*>(f)
+  , make_dim3(shape.grid_size,  1, 1)
+  , make_dim3(shape.block_size, 1, 1)
+  , args_ptrs, 0, streamish.get()
   ));
 }
 
 inline void graph_launch(cuda_stream& stream, cuda_compiled_graph& cgraph)
 {
-  CUDA_THROW_ON_ERROR(cuGraphLaunch(cgraph.get(), stream.get()));
+  CUDA_THROW_ON_ERROR(cudaGraphLaunch(cgraph.get(), stream.get()));
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -2648,6 +2495,30 @@ operator<<(std::ostream& os, output_types ot)
   else                                return os << "unknown-output-type";
 }
 
+///////////////////////////////////////////////////////////////////////////////
+
+__global__ void noop_kernel() {}
+
+__global__ void payload_kernel(uint64_t expected)
+{
+  payload<cuda_globaltimer_clocksource>(expected);
+}
+
+__global__ void noop_dynamic_linearly_dependent_kernel(
+  int32_t kernels_per_graph
+, int32_t grid_size
+, int32_t block_size
+) {
+  if (blockIdx.x == 0 && threadIdx.x == 0 && kernels_per_graph > 0)
+    noop_dynamic_linearly_dependent_kernel<<<
+      grid_size, block_size, 0, cudaStreamTailLaunch
+    >>>(
+      kernels_per_graph - 1, grid_size, block_size
+    );
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
 int main(int argc, char** argv)
 {
 
@@ -2723,7 +2594,7 @@ int main(int argc, char** argv)
     << "--graph-compile-samples-per-kernel=INTEGRAL"                   << endl
     << "    The number of samples per kernel for graph compilation"    << endl
     << "    experiments."                                              << endl
-    << "    Default:"
+    << "    Default: "
        << default_graph_compile_samples_per_kernel << "."              << endl
     << "--graph-compile-warmups-per-kernel=INTEGRAL"                   << endl
     << "    The number of warmup samples per kernel to perform "       << endl
@@ -2739,13 +2610,12 @@ int main(int argc, char** argv)
     << "    The number of warmup samples per kernel to perform "       << endl
     << "    before graph launch experiments."                          << endl
     << "    Default: `--graph-launch-samples-per-kernel / "
-       << default_graph_launch_warmups_per_kernel_divisor << "`."      << endl
+       << default_stream_launch_warmups_per_kernel_divisor << "`."     << endl
     << "--stream-launch-samples-per-kernel=INTEGRAL"                   << endl
     << "    The number of samples per kernel for stream launch"        << endl
     << "    experiments."                                              << endl
     << "    Default: `--graph-launch-samples-per-kernel * "
-       << default_stream_launch_samples_per_kernel_multiplier
-       << "`."                                                         << endl
+       << default_stream_launch_samples_per_kernel_multiplier << "`."  << endl
     << "--stream-launch-warmups-per-kernel=INTEGRAL"                   << endl
     << "    The number of warmup samples per kernel to perform "       << endl
     << "    before stream launch experiments."                         << endl
@@ -3110,67 +2980,12 @@ int main(int argc, char** argv)
 
   /////////////////////////////////////////////////////////////////////////////
 
-  cuInit(0);
+  cuda_launch_shape noop_shape = cuda_compute_occupancy(noop_kernel);
 
-  cuda_context      context;
-  cuda_module       module;
-  cuda_function     hello_world;
-  cuda_launch_shape hello_world_shape;
-  cuda_function     noop;
-  cuda_launch_shape noop_shape;
-  cuda_function     hang;
-  cuda_launch_shape hang_shape;
-  cuda_function     payload;
-  cuda_launch_shape payload_shape;
-  cuda_function     noop_dynamic_linearly_dependent;
-  cuda_launch_shape noop_dynamic_linearly_dependent_shape;
+  cuda_launch_shape payload_shape = cuda_compute_occupancy(payload_kernel);
 
-  auto const device_reset
-    = [&] {
-        // First, we need to unload the module.
-        module.reset();
-
-        // Then, we need to destroy the context.
-        context.reset();
-
-        // Then, we make a new context.
-        context = cuda_context(device);
-
-        // Load the module.
-        try
-        {
-          module = cuda_module(binary_path + "/kernels");
-        }
-        catch (cuda::driver_exception& e)
-        {
-          if (CUDA_ERROR_FILE_NOT_FOUND != e.code())
-            // Some other problem occurred, rethrow to report it.
-            throw;
-
-          // Try to load from the current directory.
-          module = cuda_module("kernels");
-        }
-
-        // Load our kernels.
-        hello_world = cuda_function(module, "hello_world_kernel");
-        hello_world_shape = cuda_compute_occupancy(hello_world);
-
-        noop = cuda_function(module, "noop_kernel");
-        noop_shape = cuda_compute_occupancy(noop);
-
-        hang = cuda_function(module, "hang_kernel");
-        hang_shape = cuda_compute_occupancy(hang);
-
-        payload = cuda_function(module, "payload_kernel");
-        payload_shape = cuda_compute_occupancy(payload);
-
-        noop_dynamic_linearly_dependent
-          = cuda_function(module, "noop_dynamic_linearly_dependent_kernel");
-        noop_dynamic_linearly_dependent_shape
-          = cuda_compute_occupancy(noop_dynamic_linearly_dependent);
-      };
-
-  device_reset();
+  cuda_launch_shape noop_dynamic_linearly_dependent_shape
+    = cuda_compute_occupancy(noop_dynamic_linearly_dependent_kernel);
 
   /////////////////////////////////////////////////////////////////////////////
 
@@ -3284,7 +3099,7 @@ int main(int argc, char** argv)
             , stream_launch_samples_per_kernel
             , 1 // Kernels per operation.
             , 0 // Dependencies per operation.
-            , [&] { stream_launch(stream, noop, noop_shape); }
+            , [&] { stream_launch(stream, noop_kernel, noop_shape); }
             );
           }
         , data_reporter
@@ -3308,7 +3123,7 @@ int main(int argc, char** argv)
             , [&]
               {
                 for (int32_t i = 0; i < kernels_per_graph; ++i)
-                  stream_launch(stream, noop, noop_shape);
+                  stream_launch(stream, noop_kernel, noop_shape);
               }
             );
           }
@@ -3335,7 +3150,7 @@ int main(int argc, char** argv)
             , [&]
               {
                 for (int32_t i = 0; i < kernels_per_graph; ++i)
-                  stream_launch(stream, noop, noop_shape);
+                  stream_launch(stream, noop_kernel, noop_shape);
               }
               // Setup:
             , [] {}
@@ -3356,7 +3171,7 @@ int main(int argc, char** argv)
                   ;
 
                 // Launch the "blocking" kernel.
-                stream_launch(stream, payload, payload_shape, delay);
+                stream_launch(stream, payload_kernel, payload_shape, delay);
 
                 // Record the start time after the blocking kernel completes.
                 e.record(stream);
@@ -3403,7 +3218,7 @@ int main(int argc, char** argv)
             , (kernels_per_graph - 1) // Dependencies per operation.
             , [&] {
                 cg = _MV(graph_compile_linearly_dependent(
-                  noop, noop_shape, kernels_per_graph
+                  noop_kernel, noop_shape, kernels_per_graph
                 ));
               }
               // We don't want to measure the cost of destroying the previous
@@ -3425,7 +3240,7 @@ int main(int argc, char** argv)
           [&] (cuda_stream& stream)
           {
             auto cg = graph_compile_linearly_dependent(
-              noop, noop_shape, kernels_per_graph
+              noop_kernel, noop_shape, kernels_per_graph
             );
 
             return experiment(
@@ -3451,7 +3266,7 @@ int main(int argc, char** argv)
           [&] (cuda_stream& stream)
           {
             auto cg = graph_compile_linearly_dependent(
-              noop, noop_shape, kernels_per_graph
+              noop_kernel, noop_shape, kernels_per_graph
             );
 
             // Create events for timing up front.
@@ -3486,7 +3301,7 @@ int main(int argc, char** argv)
                   ;
 
                 // Launch the "blocking" kernel.
-                stream_launch(stream, payload, payload_shape, delay);
+                stream_launch(stream, payload_kernel, payload_shape, delay);
 
                 // Record the start time after the blocking kernel completes.
                 e.record(stream);
@@ -3532,7 +3347,7 @@ int main(int argc, char** argv)
             , [&]
               {
                 for (int32_t i = 0; i < kernels_per_graph; ++i)
-                  stream_launch(pool, noop, noop_shape);
+                  stream_launch(pool, noop_kernel, noop_shape);
               }
             );
           }
@@ -3560,7 +3375,7 @@ int main(int argc, char** argv)
             , 0                 // Dependencies per operation.
             , [&] {
                 cg = _MV(graph_compile_independent(
-                  noop, noop_shape, kernels_per_graph
+                  noop_kernel, noop_shape, kernels_per_graph
                 ));
               }
               // We don't want to measure the cost of destroying the previous
@@ -3582,7 +3397,7 @@ int main(int argc, char** argv)
           [&] (cuda_stream& stream)
           {
             auto cg = graph_compile_independent(
-              noop, noop_shape, kernels_per_graph
+              noop_kernel, noop_shape, kernels_per_graph
             );
 
             return experiment(
@@ -3617,7 +3432,7 @@ int main(int argc, char** argv)
               {
                 stream_launch(
                   stream
-                , noop_dynamic_linearly_dependent
+                , noop_dynamic_linearly_dependent_kernel
                 , noop_dynamic_linearly_dependent_shape
                 , kernels_per_graph
                 , noop_dynamic_linearly_dependent_shape.grid_size
@@ -3663,7 +3478,7 @@ int main(int argc, char** argv)
               , edges.size() // Dependencies per operation.
               , [&] {
                   cg = _MV(graph_compile_from_edges(
-                    noop, noop_shape, A.nx(), edges
+                    noop_kernel, noop_shape, A.nx(), edges
                   ));
                 }
                 // We don't want to measure the cost of destroying the previous
@@ -3684,7 +3499,7 @@ int main(int argc, char** argv)
             [&] (cuda_stream& stream)
             {
               auto cg = graph_compile_from_edges(
-                noop, noop_shape, A.nx(), edges
+                noop_kernel, noop_shape, A.nx(), edges
               );
 
               return experiment(
@@ -3705,6 +3520,6 @@ int main(int argc, char** argv)
     }
   }
 
-  CUDA_THROW_ON_ERROR(cuCtxSynchronize());
+  CUDA_THROW_ON_ERROR(cudaDeviceSynchronize());
 }
 
